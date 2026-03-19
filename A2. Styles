@@ -1,1 +1,69 @@
 
+### Subject Formatting Table
+
+https://github.com/worthingtonse/client-prompts/blob/main/Ideas%20In%20Progress/QMAIL/QMAIL_FILE_PHASE_II/template-codes.png?raw=true
+
+
+
+Total bytes: 8
+
+
+
+
+### **3.1. Layout Definition**
+
+The first byte of the file defines which of the 255 predefined layouts to use. Each layout specifies the arrangement of content panes (e.g., header, main, footer) and has both a desktop and a mobile rendering mode.
+
+* **Data Type:** 1 byte  
+* **Example:** 0x03 selects Layout \#3 (e.g., Header, Navbar, Main, Footer).
+
+# Figuring out the templates
+There are 256 templates. All the templates have a "Main" section. Template 0 is just a main section. 
+The byte of the templates is a bit field:
+
+Template Types
+bit | meaning
+---|---
+0 | Side to Side Heading exists
+1 | Side to Side Footer exists
+2 | Top to Bottom Left Aside exists
+3 | Top to Bottom Right Aside exists
+4, 5 | How many columns exist (1 to 4) 00=1 01=2 11=3
+6, 7 | How many rows exist (1 to 4) 00=1 01=2 11=3
+
+Container Types (For Phase II or QWeb)
+bit | meaning
+---|---
+0 | Side to Side Heading exists
+1 | Side to Side Footer exists
+2 | Top to Bottom Left Aside exists
+3 | Top to Bottom Right Aside exists
+4, 5 | How many columns exist (1 to 4) 
+6, 7 | How many rows exist (1 to 4) 
+
+
+### **3.2. Style Table**
+
+This table defines the visual styles used in the document.
+
+* **Structure:** A count byte followed by a series of 6-byte style records.  
+* **Style Record (6 bytes / 48 bits):**  
+  * **font-family (6 bits):** ID for up to 64 predefined fonts.  
+  * **font-size (7 bits):** Size in points (1-127pt).  
+  * **flags (3 bits):** Bitmask for Bold, Italic, and Underline.  
+  * **text-color (16 bits):** 16-bit "HighColor" (R5G6B5).  
+  * **bg-color (16 bits):** 16-bit "HighColor" (R5G6B5).
+
+
+
+Index Number |Name  | bytes/bits | Meaning
+---|---|---|---
+0 | Style Start Code      | 1      | (ASCII Non-printable characters are allowed) When this code is encoutered in the subject line, the following style will kick in. 
+1 | font-family           | 1      | 0-255. See font table. 0 means download font from raida. Only one allowed
+2 | color                 | 2      | 65K different colors
+4 | background-color      | 2      | 65K different colors
+5.0 | font-weight         | 2 bits | 0=normal, 1=light, 2= bold, 3 = ?
+5.2| font-style           | 2 bits | 0=normal, 1=italic, 2=oblique
+5.4 | text-decoration-line| 2 bits | 0=none, 1=underline, 2=overline, 3=line-through
+5.6 | direction           | 2 bits | 0= Left Right, 1=Right Left, 2=Top Bottom, 3=Bottom Top
+5.8| Style End Code       | 1      | (ASCII Non-printable characters are allowed) Puts the Style back into the last style. 
