@@ -51,7 +51,7 @@ CBDF achieves this by:
 
   00-Overview.txt           This document
   01-Document-Structure.txt Section layout, meta keys, compression, EOF
-  02-Meta-Section.txt       (Phase I spec preserved in A1. Meta.md)
+  02-Meta-Section.txt       Meta section: KV format, key table, mailbox format
   03-Styles-Section.txt     Style sub-tables, record formats, bit layouts
   04-Text-Section.txt       Control codes in text, worked examples
   05-Resources-Section.txt  Binary resource format, abortable downloads
