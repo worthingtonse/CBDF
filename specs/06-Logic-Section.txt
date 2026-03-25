@@ -1,31 +1,629 @@
 ================================================================================
-  CBDF SPECIFICATION: LOGIC SECTION (PLACEHOLDER)
+  CBDF SPECIFICATION: LOGIC SECTION
   Document: 06-Logic-Section
-  Version: 0.1 (Phase III - NOT YET IMPLEMENTED)
+  Version: 0.5 (Phase III Draft)
   Date: 2026-03-25
 ================================================================================
 
-The Logic section will contain executable code for interactive documents.
-It is deferred to Phase III.
+1. OVERVIEW
+================================================================================
 
-Planned features:
-  - BEAM/Elixir virtual machine bytecode
-  - Supervisor and Actor model
-  - CRUD operations on document elements (via stable Element IDs)
-  - Event handling (hover, click, scroll, timer)
-  - Layer visibility toggling
-  - Modal show/hide
-  - Form validation and submission
-  - Animation control
+The Logic section enables interactive behavior in CBDF documents: showing/
+hiding elements, animating transitions, responding to user input, validating
+forms, and controlling layers/modals.
 
-Reserved control characters for Phase III:
-  0x05 ENQ - Interactive resource request
-  0x06 ACK - Interactive acknowledgment
-  0x07 BEL - Client alert/sound
-  0x08 BS  - Typing/animation effects
-  0x18 CAN - Initially hidden / show-hide toggle
-  0x1B ESC - Extended command sequences
+It uses an EVENT -> CONDITION -> ACTION model. Every interactive behavior
+is expressed as a compact binary rule:
+
+  WHEN [event] ON [target] IF [conditions...] THEN [actions...]
+
+This is NOT a general-purpose programming language. It is a domain-specific
+UI automation system designed for document manipulation. Think PowerPoint
+animations meets Excel conditional formatting, not JavaScript.
+
+The Logic section sits after the fourth FS (end of Resources) and begins
+with a 4-byte LE length prefix.
+
+Design principles:
+  - Deterministic: same bytes = same behavior on every client. No AI
+    dependency at runtime.
+  - Compact: a typical interactive page uses 100-600 bytes of logic vs
+    5-15KB of equivalent JavaScript.
+  - Safe: no file I/O, no network access, no general-purpose loops.
+    The opcode set is sandboxed to document manipulation only.
+  - Referenceable: all actions target elements by their stable ELEMENT_ID
+    (assigned via 0x15 in the Text section).
+
+
+2. RULE FORMAT
+================================================================================
+
+The Logic section is a sequence of RULES separated by RECORD_SEP (0x1E).
+
+  [Rule Count: 2 bytes LE]
+  RS [Rule 0]
+  RS [Rule 1]
+  ...
+
+Each rule has this structure:
+
+  Field           | Size    | Description
+  ----------------|---------|--------------------------------------------
+  Event           | 1 byte  | What triggers this rule (see Section 3)
+  Target ID       | 1 byte  | ELEMENT_ID the event is bound to (0=page)
+  Cond/Act counts | 1 byte  | High nibble: condition count (0-15)
+                  |         | Low nibble: action count (1-15)
+  Conditions      | variable| 0-15 conditions, each 2-3 bytes
+  Actions         | variable| 1-15 actions, each 2-4 bytes
+
+  Minimum rule size: 3 bytes (event + target + counts + 1 action of 2 bytes
+  = 5 bytes). No-condition single-action rule = 5 bytes.
+
+  Cond/Act byte layout:
+    Bits 4-7: Number of conditions (0-15)
+    Bits 0-3: Number of actions (1-15, 0 is invalid)
+
+  Multiple conditions are ANDed together (all must be true).
+  Actions execute sequentially, top to bottom.
+
+
+3. EVENT OPCODES (1 byte)
+================================================================================
+
+Events define WHEN a rule fires.
+
+  Hex  | Name           | Description                    | Target meaning
+  -----|----------------|--------------------------------|------------------
+  0x01 | EVT_CLICK      | User clicks/taps element       | Element ID
+  0x02 | EVT_HOVER_IN   | Mouse enters element bounds    | Element ID
+  0x03 | EVT_HOVER_OUT  | Mouse leaves element bounds    | Element ID
+  0x04 | EVT_LOAD       | Page or element finishes load  | 0=page, N=element
+  0x05 | EVT_TIMER      | After N ms (one-shot)          | Timer param follows
+  0x06 | EVT_INTERVAL   | Every N ms (repeating)         | Interval param follows
+  0x07 | EVT_SCROLL_IN  | Element scrolls into viewport  | Element ID
+  0x08 | EVT_SCROLL_OUT | Element scrolls out of view    | Element ID
+  0x09 | EVT_INPUT      | Form input value changes       | Element ID (input)
+  0x0A | EVT_KEY_PRESS  | Specific key pressed           | Key code follows
+  0x0B | EVT_FOCUS      | Element receives focus         | Element ID
+  0x0C | EVT_BLUR       | Element loses focus            | Element ID
+  0x0D | EVT_SUBMIT     | Form submitted                 | Element ID (form)
+  0x0E | EVT_DBL_CLICK  | User double-clicks element     | Element ID
+  0x0F | EVT_LONG_PRESS | User presses and holds (500ms) | Element ID
+  0x10-0xFF | Reserved  |                                |
+
+  TIMER and INTERVAL events have a special target byte:
+    Target ID = 0 (not an element)
+    Followed by [Duration: 2 bytes LE] in milliseconds (0-65535ms)
+    Total: event(1) + target(1) + duration(2) = 4 bytes for the event header
+
+  KEY_PRESS event:
+    Target ID = 0 (page-level)
+    Followed by [Key Code: 1 byte] (ASCII code of the key)
+    Total: event(1) + target(1) + keycode(1) = 3 bytes for the event header
+
+
+4. CONDITION OPCODES (1 byte + 1-2 byte params)
+================================================================================
+
+Conditions are optional gates that must ALL be true for actions to execute.
+
+  Hex  | Name           | Params       | Description
+  -----|----------------|--------------|------------------------------------
+  0x01 | CND_VISIBLE    | [ElemID:1]   | Element is currently visible
+  0x02 | CND_HIDDEN     | [ElemID:1]   | Element is currently hidden
+  0x03 | CND_LAYER_ON   | [LayerID:1]  | Layer is currently visible
+  0x04 | CND_LAYER_OFF  | [LayerID:1]  | Layer is currently hidden
+  0x05 | CND_EQUALS     | [ElemID:1][Val:1] | Element text equals string*
+  0x06 | CND_CONTAINS   | [ElemID:1][Val:1] | Element text contains string*
+  0x07 | CND_EMPTY      | [ElemID:1]   | Form input is empty
+  0x08 | CND_NOT_EMPTY  | [ElemID:1]   | Form input is not empty
+  0x09 | CND_CHECKED    | [ElemID:1]   | Checkbox/radio is checked
+  0x0A | CND_UNCHECKED  | [ElemID:1]   | Checkbox/radio is not checked
+  0x0B | CND_GT         | [ElemID:1][Val:1] | Numeric input > value
+  0x0C | CND_LT         | [ElemID:1][Val:1] | Numeric input < value
+  0x0D | CND_NOT        | (none)       | Negate the NEXT condition
+  0x0E | CND_OR         | (none)       | OR with next condition (instead of AND)
+  0x0F | CND_STYLE_IS   | [ElemID:1][StyleIdx:1] | Element has this style
+  0x10-0xFF | Reserved  |              |
+
+  *String comparison: The Val byte is an index into a string table stored
+  at the start of the Logic section (see Section 9). This avoids embedding
+  variable-length strings in rules.
+
+  Condition sizes:
+    CND_NOT, CND_OR: 1 byte (modifier only, no params)
+    CND_VISIBLE, CND_HIDDEN, CND_EMPTY, etc.: 2 bytes (opcode + elem)
+    CND_EQUALS, CND_CONTAINS, CND_GT, CND_LT, CND_STYLE_IS: 3 bytes
+
+
+5. ACTION OPCODES (1 byte + 1-3 byte params)
+================================================================================
+
+Actions define WHAT happens when the event fires and conditions are met.
+
+--- 5A. VISIBILITY ACTIONS ---
+
+  Hex  | Name           | Params       | Size | Description
+  -----|----------------|--------------|------|---------------------------
+  0x01 | ACT_SHOW       | [ElemID:1]   | 2    | Make element visible
+  0x02 | ACT_HIDE       | [ElemID:1]   | 2    | Make element hidden
+  0x03 | ACT_TOGGLE     | [ElemID:1]   | 2    | Flip element visibility
+
+--- 5B. LAYER ACTIONS ---
+
+  0x08 | ACT_LAYER_SHOW   | [LayerID:1]  | 2  | Show layer
+  0x09 | ACT_LAYER_HIDE   | [LayerID:1]  | 2  | Hide layer
+  0x0A | ACT_LAYER_TOGGLE | [LayerID:1]  | 2  | Toggle layer visibility
+
+--- 5C. STYLE ACTIONS ---
+
+  0x10 | ACT_SET_STYLE    | [ElemID:1][StyleIdx:1]  | 3 | Change text style
+  0x11 | ACT_SET_BG_STYLE | [ElemID:1][BGIdx:1]     | 3 | Change BG style
+  0x12 | ACT_SET_BORDER   | [ElemID:1][BorderIdx:1] | 3 | Change border style
+  0x13 | ACT_SWAP_STYLE   | [ElemID:1][StyleA:1][StyleB:1] | 4 | Toggle between two styles
+
+--- 5D. CONTENT ACTIONS ---
+
+  0x18 | ACT_SET_TEXT   | [ElemID:1][StringIdx:1]  | 3 | Replace element text*
+  0x19 | ACT_APPEND     | [ElemID:1][StringIdx:1]  | 3 | Append text to element*
+  0x1A | ACT_CLEAR      | [ElemID:1]               | 2 | Clear element content
+
+  *StringIdx references the string table (Section 9).
+
+--- 5E. ANIMATION ACTIONS ---
+
+  0x20 | ACT_FADE_IN    | [ElemID:1][Duration:1] | 3 | Fade in (duration*10ms)
+  0x21 | ACT_FADE_OUT   | [ElemID:1][Duration:1] | 3 | Fade out
+  0x22 | ACT_SLIDE_IN   | [ElemID:1][Dir:1]      | 3 | Slide from direction**
+  0x23 | ACT_SLIDE_OUT  | [ElemID:1][Dir:1]      | 3 | Slide to direction**
+  0x24 | ACT_SCALE      | [ElemID:1][Percent:1]  | 3 | Scale (0-255 = 0-255%)
+  0x25 | ACT_ROTATE     | [ElemID:1][Degrees:1]  | 3 | Rotate (0-255 = 0-360deg)
+  0x26 | ACT_BOUNCE     | [ElemID:1][Count:1]    | 3 | Bounce N times
+  0x27 | ACT_SHAKE      | [ElemID:1][Intensity:1]| 3 | Shake (0-15 intensity)
+  0x28 | ACT_PULSE      | [ElemID:1][Count:1]    | 3 | Pulse glow N times
+
+  **Direction byte: 0=left, 1=right, 2=top, 3=bottom
+  Duration byte: value * 10 = milliseconds (0=instant, 1=10ms, 255=2550ms)
+
+--- 5F. MODAL ACTIONS ---
+
+  0x30 | ACT_MODAL_OPEN  | [LayerID:1][FadeDur:1] | 3 | Show modal layer + overlay
+  0x31 | ACT_MODAL_CLOSE | [LayerID:1][FadeDur:1] | 3 | Hide modal layer + overlay
+
+--- 5G. NAVIGATION ACTIONS ---
+
+  0x38 | ACT_SCROLL_TO   | [ElemID:1][Speed:1]     | 3 | Smooth scroll to element
+  0x39 | ACT_GOTO_LINK   | [LinkType:1][LinkIdx:1] | 3 | Navigate to a link*
+  0x3A | ACT_GOTO_PAGE   | [PageIdx:1]             | 2 | Jump to page (multi-page)
+  0x3B | ACT_SWITCH_TAB  | [TabElemID:1][TabIdx:1] | 3 | Activate tab N in tab container
+
+  *LinkIdx references a link table in the Logic section (see Section 10).
+
+--- 5H. FLOW CONTROL ACTIONS ---
+
+  0x40 | ACT_DELAY       | [Duration:2 LE]         | 3 | Pause N ms before next action
+  0x41 | ACT_STOP_TIMER  | [TimerID:1]             | 2 | Cancel a running timer
+  0x42 | ACT_STOP_INTRVL | [IntervalID:1]          | 2 | Cancel a running interval
+  0x43 | ACT_CALL_RULE   | [RuleIdx:2 LE]          | 3 | Execute another rule by index
+  0x44 | ACT_STOP        | (none)                  | 1 | Stop executing this rule's actions
+
+--- 5I. FORM ACTIONS ---
+
+  0x48 | ACT_FOCUS       | [ElemID:1]              | 2 | Set focus to form element
+  0x49 | ACT_BLUR        | [ElemID:1]              | 2 | Remove focus from element
+  0x4A | ACT_VALIDATE    | [ElemID:1][Pattern:1]   | 3 | Validate input against pattern*
+  0x4B | ACT_SET_VALUE   | [ElemID:1][StringIdx:1] | 3 | Set form input value
+  0x4C | ACT_DISABLE     | [ElemID:1]              | 2 | Disable form element
+  0x4D | ACT_ENABLE      | [ElemID:1]              | 2 | Enable form element
+
+  *Pattern byte references a pattern table (Section 11).
+
+--- 5J. AUDIO/ALERT ACTIONS ---
+
+  0x50 | ACT_ALERT       | [SoundID:1]             | 2 | Play alert sound
+  0x51 | ACT_VIBRATE     | [Duration:1]            | 2 | Vibrate (mobile, duration*10ms)
+
+--- 5K. RESERVED ---
+
+  0x60-0xFF | Reserved for future actions
+
+
+6. COMPLETE RULE EXAMPLES
+================================================================================
+
+6A. "Click button #5 -> show layer 3 with fade-in 500ms"
+-----------------------------------------------------------
+
+  Hex: 01 05 01 08 03 20 03 32
+
+  Decoded:
+    01       EVT_CLICK
+    05       Target: element #5
+    01       0 conditions, 1 action... wait, that's wrong.
+
+  Corrected encoding (cond_count:act_count in one byte):
+    01       EVT_CLICK
+    05       Target: element #5
+    02       Cond/Act: 0 conditions (high nibble 0), 2 actions (low nibble 2)
+    08 03    ACT_LAYER_SHOW, layer 3
+    20 03 32 ACT_FADE_IN, element in layer 3 target, duration 50 (500ms)
+
+  Total: 8 bytes
+
+  Equivalent JavaScript: ~450 bytes minified.
+  Savings: 98%.
+
+
+6B. "Hover over element #2 -> swap between style 0 and style 3"
+-----------------------------------------------------------------
+
+  Hex: 02 02 01 13 02 00 03
+
+  Decoded:
+    02       EVT_HOVER_IN
+    02       Target: element #2
+    01       0 conditions, 1 action
+    13       ACT_SWAP_STYLE
+    02       Element #2
+    00       Style A = 0
+    03       Style B = 3
+
+  Total: 7 bytes
+  Equivalent CSS :hover with JS fallback: ~200 bytes.
+
+
+6C. "When input #7 changes, if empty show error #8 in red style #3"
+---------------------------------------------------------------------
+
+  Hex: 09 07 12 07 07 01 08 10 08 03
+
+  Decoded:
+    09       EVT_INPUT
+    07       Target: element #7 (input field)
+    12       1 condition (high nibble 1), 2 actions (low nibble 2)
+    07 07    CND_EMPTY, element #7
+    01 08    ACT_SHOW, element #8 (error message)
+    10 08 03 ACT_SET_STYLE, element #8, style #3 (red text)
+
+  Total: 10 bytes
+  Equivalent JavaScript: ~300 bytes.
+
+
+6D. "Page loads -> after 2 seconds, fade in element #10"
+----------------------------------------------------------
+
+  Hex: 05 00 D0 07 01 20 0A C8
+
+  Decoded:
+    05       EVT_TIMER
+    00       Target: page
+    D0 07    Duration: 0x07D0 = 2000ms (LE)
+    01       0 conditions, 1 action
+    20       ACT_FADE_IN
+    0A       Element #10
+    C8       Duration: 200 (200*10 = 2000ms fade)
+
+  Total: 8 bytes
+
+
+6E. "Click #1 -> if layer 5 is hidden, open as modal with 300ms fade,
+      else close modal"
+------------------------------------------------------------------------
+
+  This requires TWO rules (one for open, one for close):
+
+  Rule 1 (open):
+    01 01 11 04 05 30 05 1E
+    EVT_CLICK(01) target(01) 1cond/1act(11)
+    CND_LAYER_OFF(04) layer(05)
+    ACT_MODAL_OPEN(30) layer(05) fade(1E=300ms)
+  = 8 bytes
+
+  Rule 2 (close):
+    01 01 11 03 05 31 05 1E
+    EVT_CLICK(01) target(01) 1cond/1act(11)
+    CND_LAYER_ON(03) layer(05)
+    ACT_MODAL_CLOSE(31) layer(05) fade(1E=300ms)
+  = 8 bytes
+
+  Total: 16 bytes for full modal toggle.
+  Equivalent JavaScript: ~600 bytes.
+
+
+7. SIZE COMPARISON TABLE
+================================================================================
+
+  Use case                          | CBDF Logic | JavaScript | Savings
+  ----------------------------------|------------|------------|--------
+  Simple email (no logic)           | 0 B        | 0 B        | --
+  Email: modal attachment viewer    | 21 B       | 1.2 KB     | 98%
+  Landing page: nav + animations    | 120 B      | 8 KB       | 98%
+  Interactive form with validation  | 225 B      | 12 KB      | 98%
+  Full web app: tabs, modals, forms | 640 B      | 25 KB      | 97%
+  Complex dashboard                 | 2 KB       | 60 KB      | 97%
+
+
+8. LOGIC SECTION LAYOUT
+================================================================================
+
+  [Length: 4 bytes LE]
+  [String Table]             -- Variable-length strings used by rules
+  [Pattern Table]            -- Regex/validation patterns used by rules
+  [Link Table]               -- Navigation targets used by rules
+  [Rule Count: 2 bytes LE]
+  RS [Rule 0]
+  RS [Rule 1]
+  ...
+
+  Empty logic section (Phase II default):
+    [0x00 0x00 0x00 0x00]   -- Length: 0 bytes
+
+
+9. STRING TABLE
+================================================================================
+
+Strings used in conditions (CND_EQUALS, CND_CONTAINS) and actions
+(ACT_SET_TEXT, ACT_APPEND, ACT_SET_VALUE) are stored in a string table
+at the start of the Logic section, referenced by 1-byte index.
+
+  [String Count: 1 byte] (0-255 strings)
+  UNIT_SEP [Length: 1 byte] [UTF-8 string data]
+  UNIT_SEP [Length: 1 byte] [UTF-8 string data]
+  ...
+
+  Example: Two strings "Error: required" and "Success!"
+    02                            String count: 2
+    1F 0F 4572726F723A207265...   US, length 15, "Error: required"
+    1F 08 5375636365737321        US, length 8, "Success!"
+
+  Referenced in rules as StringIdx 0 and 1.
+
+
+10. LINK TABLE
+================================================================================
+
+Navigation targets used by ACT_GOTO_LINK are stored here, using the same
+link format as LINK_START in the Text section.
+
+  [Link Count: 1 byte] (0-255 links)
+  UNIT_SEP [Type: 1 byte] [Length: 1 byte] [Target bytes]
+  ...
+
+  Types: 0=URL, 1=QWeb Page ID, 2=Mailbox, 3=Action (self-referencing)
+
+  Referenced in rules by 1-byte LinkIdx.
+
+
+11. PATTERN TABLE
+================================================================================
+
+Validation patterns used by ACT_VALIDATE are stored here. Each pattern
+is a simplified regex-like string.
+
+  [Pattern Count: 1 byte] (0-255 patterns)
+  UNIT_SEP [Length: 1 byte] [UTF-8 pattern string]
+  ...
+
+  Built-in pattern shortcuts (PatternIdx 0-15 are predefined):
+    0  = Any (always valid)
+    1  = Email (basic email format)
+    2  = Number (digits only)
+    3  = Decimal (digits + optional dot)
+    4  = Phone (digits, spaces, dashes, parens, plus)
+    5  = URL (basic URL format)
+    6  = Alpha (letters only)
+    7  = Alphanumeric (letters + digits)
+    8  = Non-empty (at least 1 character)
+    9  = Min length 3
+    10 = Min length 6
+    11 = Min length 8
+    12 = Max length 50
+    13 = Max length 255
+    14 = Date (YYYY-MM-DD)
+    15 = Hex (hex digits only)
+
+  PatternIdx 16+ reference custom patterns in this table (16 = first
+  custom pattern, 17 = second, etc.).
+
+
+12. EXECUTION MODEL
+================================================================================
+
+  12A. EVENT BINDING
+  --------------------
+  When the Logic section is parsed, each rule is registered as an event
+  listener on its target element. The client's runtime maintains a map:
+    (element_id, event_type) -> [list of rules]
+
+  12B. CONDITION EVALUATION
+  ---------------------------
+  When an event fires, all rules bound to that (element, event) pair are
+  evaluated. For each rule:
+    1. Evaluate all conditions (ANDed by default).
+    2. CND_NOT negates the next condition.
+    3. CND_OR changes the next AND to OR.
+    4. If all conditions pass, execute actions.
+
+  12C. ACTION EXECUTION
+  -----------------------
+  Actions execute sequentially. ACT_DELAY pauses execution for N ms.
+  ACT_STOP halts the action chain. ACT_CALL_RULE transfers to another rule.
+
+  12D. ANIMATION QUEUEING
+  --------------------------
+  If multiple animations target the same element, they queue (each starts
+  after the previous finishes). ACT_DELAY can create gaps between animations.
+
+  12E. TIMER/INTERVAL MANAGEMENT
+  --------------------------------
+  EVT_TIMER creates a one-shot timer. EVT_INTERVAL creates a repeating timer.
+  Each is assigned an implicit ID (rule index). ACT_STOP_TIMER and
+  ACT_STOP_INTRVL reference timers by their rule index.
+
+
+13. SECURITY MODEL
+================================================================================
+
+The Logic section is sandboxed:
+
+  ALLOWED:
+    - Read/modify visibility of elements within the document
+    - Read/modify styles of elements within the document
+    - Read/modify text content of elements within the document
+    - Read form input values (for validation)
+    - Trigger animations on document elements
+    - Navigate to links defined in the document
+    - Play predefined alert sounds
+
+  NOT ALLOWED:
+    - Network requests (no AJAX, no fetch, no WebSocket)
+    - File system access (no read, no write)
+    - Access to other documents or frames (no cross-document scripting)
+    - Arbitrary code execution (no eval, no function constructors)
+    - Access to browser APIs (no cookies, no localStorage, no DOM beyond
+      the CBDF document's own elements)
+    - Infinite loops (intervals must have minimum 100ms period; timers
+      are limited to 1000 active per document)
+
+  The client enforces these restrictions. A malformed Logic section that
+  attempts to exceed these limits is terminated without affecting the
+  rest of the document.
+
+
+14. AI INTEGRATION
+================================================================================
+
+AI is used at AUTHORING TIME, not at runtime:
+
+  14A. CREATION: The document author describes behavior in natural language:
+    "When the user clicks the signup button, validate the email field.
+     If empty, shake the input and show the error message in red."
+  The authoring tool's AI converts this to the opcode sequence:
+    09 07 12 07 07 27 07 05 01 08 10 08 03
+  (13 bytes of deterministic bytecode)
+
+  14B. OPTIMIZATION: The AI can analyze rules and:
+    - Merge redundant rules (two click handlers on the same element)
+    - Reorder actions for visual smoothness
+    - Suggest missing error handlers
+
+  14C. DOCUMENTATION: The AI reads opcodes and produces human-readable
+  descriptions for debugging:
+    "Rule 3: When element #7 input changes and is empty,
+     shake element #7 (intensity 5), show element #8,
+     set element #8 to style #3 (red error text)"
+
+  14D. NO RUNTIME AI: The Logic section contains only deterministic opcodes.
+  No AI model is needed to execute them. Every client produces identical
+  behavior from identical bytes.
+
+
+15. C ENUMERATIONS
+================================================================================
+
+  /* Event opcodes */
+  typedef enum {
+      EVT_CLICK       = 0x01,
+      EVT_HOVER_IN    = 0x02,
+      EVT_HOVER_OUT   = 0x03,
+      EVT_LOAD        = 0x04,
+      EVT_TIMER       = 0x05,
+      EVT_INTERVAL    = 0x06,
+      EVT_SCROLL_IN   = 0x07,
+      EVT_SCROLL_OUT  = 0x08,
+      EVT_INPUT       = 0x09,
+      EVT_KEY_PRESS   = 0x0A,
+      EVT_FOCUS       = 0x0B,
+      EVT_BLUR        = 0x0C,
+      EVT_SUBMIT      = 0x0D,
+      EVT_DBL_CLICK   = 0x0E,
+      EVT_LONG_PRESS  = 0x0F
+  } cbdf_event_t;
+
+  /* Condition opcodes */
+  typedef enum {
+      CND_VISIBLE     = 0x01,
+      CND_HIDDEN      = 0x02,
+      CND_LAYER_ON    = 0x03,
+      CND_LAYER_OFF   = 0x04,
+      CND_EQUALS      = 0x05,
+      CND_CONTAINS    = 0x06,
+      CND_EMPTY       = 0x07,
+      CND_NOT_EMPTY   = 0x08,
+      CND_CHECKED     = 0x09,
+      CND_UNCHECKED   = 0x0A,
+      CND_GT          = 0x0B,
+      CND_LT          = 0x0C,
+      CND_NOT         = 0x0D,
+      CND_OR          = 0x0E,
+      CND_STYLE_IS    = 0x0F
+  } cbdf_condition_t;
+
+  /* Action opcodes */
+  typedef enum {
+      /* Visibility */
+      ACT_SHOW          = 0x01,
+      ACT_HIDE          = 0x02,
+      ACT_TOGGLE        = 0x03,
+
+      /* Layers */
+      ACT_LAYER_SHOW    = 0x08,
+      ACT_LAYER_HIDE    = 0x09,
+      ACT_LAYER_TOGGLE  = 0x0A,
+
+      /* Styles */
+      ACT_SET_STYLE     = 0x10,
+      ACT_SET_BG_STYLE  = 0x11,
+      ACT_SET_BORDER    = 0x12,
+      ACT_SWAP_STYLE    = 0x13,
+
+      /* Content */
+      ACT_SET_TEXT      = 0x18,
+      ACT_APPEND        = 0x19,
+      ACT_CLEAR         = 0x1A,
+
+      /* Animation */
+      ACT_FADE_IN       = 0x20,
+      ACT_FADE_OUT      = 0x21,
+      ACT_SLIDE_IN      = 0x22,
+      ACT_SLIDE_OUT     = 0x23,
+      ACT_SCALE         = 0x24,
+      ACT_ROTATE        = 0x25,
+      ACT_BOUNCE        = 0x26,
+      ACT_SHAKE         = 0x27,
+      ACT_PULSE         = 0x28,
+
+      /* Modals */
+      ACT_MODAL_OPEN    = 0x30,
+      ACT_MODAL_CLOSE   = 0x31,
+
+      /* Navigation */
+      ACT_SCROLL_TO     = 0x38,
+      ACT_GOTO_LINK     = 0x39,
+      ACT_GOTO_PAGE     = 0x3A,
+      ACT_SWITCH_TAB    = 0x3B,
+
+      /* Flow control */
+      ACT_DELAY         = 0x40,
+      ACT_STOP_TIMER    = 0x41,
+      ACT_STOP_INTRVL   = 0x42,
+      ACT_CALL_RULE     = 0x43,
+      ACT_STOP          = 0x44,
+
+      /* Forms */
+      ACT_FOCUS         = 0x48,
+      ACT_BLUR          = 0x49,
+      ACT_VALIDATE      = 0x4A,
+      ACT_SET_VALUE     = 0x4B,
+      ACT_DISABLE       = 0x4C,
+      ACT_ENABLE        = 0x4D,
+
+      /* Audio/Alert */
+      ACT_ALERT         = 0x50,
+      ACT_VIBRATE       = 0x51
+  } cbdf_action_t;
+
 
 ================================================================================
-END OF PLACEHOLDER
+END OF SPECIFICATION
 ================================================================================
