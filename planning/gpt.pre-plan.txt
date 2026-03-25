@@ -1,0 +1,76 @@
+CBDF Pre-Planning (styles + text) — GPT-5.1-Codex-Max  
+=======================================================
+
+Scope and objectives  
+- Define decisions for styles/text markup (QWeb/QMail) with aggressive byte savings.  
+- Incorporate stakeholder answers and peer plans (gem/cla).  
+- Keep plain-text extractable; stay compatible with Phase I encoder; canonical parser/serializer in C.
+
+Hard requirements and invariants  
+- Sections (with FS): Meta | Styles | Resources (optional) | Text | Logic (later). Order set to Meta|Styles|Resources|Text|Logic to allow abortable download (skip heavy resources). Recommend length prefixes on Styles/Text/Resources/Logic to enable skipping; compression may wrap everything after the first FS; Meta stays uncompressed.  
+- Layout byte: 1 of 256 templates; panel count 1–5; column/row bits fixed to 00=1, 01=2, 10=3, 11=4. First four bits panels, last four corners are redesignable if a better scheme emerges.  
+- Fonts: 2-byte IDs (≥4095; first 2000 from CoolText). Prefer style bits for subfont/variant; optional 12+4 split (family + sub-variant hints).  
+- Colors: 16-bit R5G6B5 with reserved transparency codes (10 levels). Avoid consuming pure black; prefer a high-end block (e.g., 0xFFF6–0xFFFF) or another rarely used band (e.g., near 0x7Fxx); to be finalized.  
+- Styles indexed by order; sub-table tiering (base/extended/rare) allowed.  
+- Standard style set supported: built-in defaults (e.g., “Arial 12pt black”) cost 0 bytes; documents send only deltas; user viewer themes remain out-of-scope for the format.  
+- Text-only view: strip control bytes (<0x20 except HT/LF/CR as needed) after decompression when used; consider an optional text-start offset in Meta for fast preview if scanning buffers is costly.  
+- AI prompts evaluated client-side; default prompt stored in client if AI absent.  
+- Resources section allows skipping image/iframe binaries; renderer decides placeholder vs reflow using width/height from style definitions.
+
+Section architecture (draft)  
+- Meta: version/format; document type (email/web); compression mode(s); flags for presence of styles/resources/logic; subject length/value; optional default style indices.  
+- Styles: layout byte; background; per-panel/container styles (modal layer too); text styles (subject/body/link); component styles (nav, table/list, image, iframe; forms reserved for Phase III); asset refs (font/image/effect IDs); gradients use type + N stops.  
+- Resources (optional FS-delimited): binary images/iframes; length-prefixed for skip; missing-resource behavior is client choice; styles should include width/height so placeholders are possible when resources are skipped.  
+- Text: STX + UTF-8 with control codes; may mirror subject inline; container/layer targeting allowed; AI/image/iframe/link commands inline.  
+- Logic: deferred; IDs stable for future CRUD.
+
+Control-code plan (proposed)  
+- FS 0x1C: section boundaries (Meta|Styles|Resources|Text|Logic).  
+- GS 0x1D: separates style families (background/containers/text/components); in text may separate layers/resources.  
+- RS 0x1E: separates records within a family.  
+- US 0x1F: optional sub-record delimiter (e.g., effects block).  
+- DC1 0x11: apply style; next byte = style index (context-dependent).  
+- NAK 0x15: variable-length field (key, length, value).  
+- Tier signaling: GS header or length heuristics for base/extended/rare (e.g., 6/12/18 bytes) needs formalization.  
+- Reserve codes for: AI prompt (client-side), image prompt/embed, iframe/embed, layer toggle, modal open/close, nav activation, link start/end with type byte (URL/qweb-id/mailbox/action), container targeting.
+
+Style record strategy (space-first)  
+- Sub-table tier bits define record size uniformly per table: base only; base+extended; base+extended+rare.  
+- Text style (sketch):  
+  - Base (~8 bytes): font-id (16 bits, 12+4 optional split), size, flags (bold/italic/underline/strike/sub/super/align), fg color (16-bit or reserved transparency), bg color (16-bit or reserved transparency).  
+  - Extended (+4): shadow vector/blur (packed), letter spacing, line height.  
+  - Rare (+4+): effect ID (4 bits, ≥16 standard effects), effect intensity/params, transforms, direction override, spacing tweaks.  
+- Effects: at least 16 standard IDs (none, shadow, glow, pulsing glow, 2-color gradient, multi-gradient, outline, emboss, glitter, fire, neon, extrude, reflection, frosted/glass, metallic, custom-with-params).  
+- Gradients: type + N color stops; only present when needed.  
+- Subject styling: meta may hold subject-style index; DC1 allowed in subject stream when doc type=email; style-id 0 as default.  
+- Containers/panels: background (color/image/gradient/opacity), spacing, border, shadow, events; main + modal; up to 5 panels from layout; alpha via reserved color IDs.  
+- Background layer: single record; supports animation/events/user-settable flag.  
+- Components: nav (orientation, spacing, active/hover refs, collapse), table/list (enums + text-style refs), forms reserved (Phase III), image (resource id or prompt + fit/cover/repeat/pos/size), iframe (resource id + sandbox + border/bg), modal (container + backdrop).  
+- Layering: layer table with on/off flags; containers reference layer; logic can toggle later.
+
+Text/markup handling  
+- UTF-8 text with interleaved control bytes; choose non-printing codes.  
+- Strip control bytes for plain text after decompression; keep HT/LF/CR as needed.  
+- Inline patterns: style switch (DC1+id); container/layer target; AI prompt (len+UTF-8); image prompt/embed (len+prompt or asset-id); iframe/embed (asset-id + sandbox); link start/end (type byte + payload); modal open/close; nav markers.  
+- Subject guaranteed in Meta; optional mirror in text; subject length 0–255.
+
+Compression and size levers  
+- Meta remains uncompressed; compression type in Meta; may compress everything after first FS.  
+- Deduplicate: fixed layout table, fixed font table, 16-bit colors with reserved transparency; default style-set flag to send only deltas.  
+- Tiered style records and length prefixes avoid padding; references preferred over repeats.  
+- Section size caps likely for Meta/Styles; Text/Resources effectively uncapped.
+
+Open decisions to resolve  
+- Final bit budgets for style tiers and exact byte layouts; finalize tier signaling.  
+- Control-code map assignments (AI/image/iframe/link/modal/nav/layer) and link payload formats.  
+- Missing-resource handling: placeholder vs reflow default.  
+- Transparency reserved range selection (prefer high-end block such as 0xFFF6–0xFFFF or similar sparse band).  
+- Max counts: styles per family, layers, panels, assets; overflow signaling; per-section caps.  
+- Plain-text exposure: whether to add a text-start offset in Meta vs rely solely on strip-control rule.  
+- Backward compatibility: Phase II vs Phase I structures; version byte gating.
+
+Immediate next steps  
+- Finalize control-code map and length-prefix rules; document strip-for-plain-text rule and optional text-start offset choice.  
+- Define canonical style record schemas (tiered) with bit tables, transparency mapping, gradient format, effect IDs.  
+- Draft example Phase II message (styled subject/body, layered panels, AI prompt, image prompt/resource, link type) that remains readable when control codes are stripped.  
+- Update metadata keys to add version/type/compression/style defaults and Resources marker without breaking Phase I C encoder.

@@ -1,0 +1,74 @@
+================================================================================
+  CBDF SPECIFICATION: OVERVIEW
+  Document: 00-Overview
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. WHAT IS CBDF?
+================================================================================
+
+CBDF (Compact Binary Document Format) is a binary replacement for HTML/CSS
+designed to radically reduce the size of marked-up documents. A CBDF-
+formatted message can be as little as 1% of the size of an equivalent
+modern HTML email.
+
+CBDF achieves this by:
+  - Using 1 byte for page layout (256 predefined templates vs. hundreds of
+    bytes of CSS/HTML)
+  - Limiting colors to 65,536 (2 bytes vs. 7 bytes for CSS "#RRGGBB")
+  - Using a fixed font table of 4,096+ fonts (2 bytes vs. font-family strings)
+  - Encoding all formatting as compact binary style records referenced by
+    1-byte indices
+  - Using ASCII control characters (0x00-0x1F) as inline commands instead
+    of verbose HTML tags
+  - Placing binary resources (images) in a separate skippable section
+
+
+2. USE CASES
+================================================================================
+
+  - QMail: Quantum-safe email (.qmail files)
+  - QWeb: Web pages (.qweb files)
+  - RAIDA: Client-server data exchange
+  - Text messaging: Ultra-compact meta-only messages (14 bytes for "Hello")
+
+
+3. DOCUMENT STRUCTURE
+================================================================================
+
+  [Meta] FS [Styles] FS [Text] FS [Resources] FS [Logic]
+
+  Meta:       Document envelope (subject, from, to, etc.). Never compressed.
+  Styles:     Visual formatting lookup tables. Compressed with Text.
+  Text:       Marked-up body content (UTF-8 + control codes). Compressed.
+  Resources:  Binary blobs (images, fonts). Never compressed. Skippable.
+  Logic:      Executable code (Phase III, not yet implemented).
+
+
+4. SPECIFICATION DOCUMENTS
+================================================================================
+
+  00-Overview.txt           This document
+  01-Document-Structure.txt Section layout, meta keys, compression, EOF
+  02-Meta-Section.txt       (Phase I spec preserved in A1. Meta.md)
+  03-Styles-Section.txt     Style sub-tables, record formats, bit layouts
+  04-Text-Section.txt       Control codes in text, worked examples
+  05-Resources-Section.txt  Binary resource format, abortable downloads
+  06-Logic-Section.txt      (Phase III, placeholder)
+  07-Control-Characters.txt The 32 ASCII control character assignments
+  08-Color-System.txt       R5G6B5 encoding, transparency codes
+  09-Font-System.txt        Font IDs, effects, custom fonts
+
+
+5. PHASES
+================================================================================
+
+  Phase I:  Plain text only. Implemented. (qmail_cbdf.c)
+  Phase II: Styled text, images, nav bars, tables, layers. Current phase.
+  Phase III: Logic section (BEAM/Elixir), forms, interactive features.
+
+
+================================================================================
+END OF SPECIFICATION
+================================================================================

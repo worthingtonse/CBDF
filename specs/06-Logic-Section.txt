@@ -1,0 +1,31 @@
+================================================================================
+  CBDF SPECIFICATION: LOGIC SECTION (PLACEHOLDER)
+  Document: 06-Logic-Section
+  Version: 0.1 (Phase III - NOT YET IMPLEMENTED)
+  Date: 2026-03-25
+================================================================================
+
+The Logic section will contain executable code for interactive documents.
+It is deferred to Phase III.
+
+Planned features:
+  - BEAM/Elixir virtual machine bytecode
+  - Supervisor and Actor model
+  - CRUD operations on document elements (via stable Element IDs)
+  - Event handling (hover, click, scroll, timer)
+  - Layer visibility toggling
+  - Modal show/hide
+  - Form validation and submission
+  - Animation control
+
+Reserved control characters for Phase III:
+  0x05 ENQ - Interactive resource request
+  0x06 ACK - Interactive acknowledgment
+  0x07 BEL - Client alert/sound
+  0x08 BS  - Typing/animation effects
+  0x18 CAN - Initially hidden / show-hide toggle
+  0x1B ESC - Extended command sequences
+
+================================================================================
+END OF PLACEHOLDER
+================================================================================

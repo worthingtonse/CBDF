@@ -1,0 +1,290 @@
+================================================================================
+  CBDF SPECIFICATION: DOCUMENT STRUCTURE
+  Document: 01-Document-Structure
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+A CBDF document is a binary file divided into up to 5 major sections,
+separated by FS (0x1C) markers. Each section has a specific purpose and
+a defined internal structure.
+
+Section order:
+  [Meta] FS [Styles] FS [Text] FS [Resources] FS [Logic]
+
+The order places Text before Resources to enable "abortable downloads":
+clients can close the network stream after receiving text, skipping image
+data entirely.
+
+
+2. SECTION OVERVIEW
+================================================================================
+
+  # | Section    | Length Prefix | Compressed? | Required? | Description
+  --|------------|--------------|-------------|-----------|---------------------------
+  1 | Meta       | No (KV pairs)| Never       | Yes       | Document envelope/metadata
+  2 | Styles     | 4 bytes LE   | Yes*        | Yes**     | Visual formatting tables
+  3 | Text       | 4 bytes LE   | Yes*        | Yes**     | Marked-up body content
+  4 | Resources  | 4 bytes LE   | Never       | No        | Binary blobs (images, etc.)
+  5 | Logic      | 4 bytes LE   | TBD         | No        | Executable code (Phase III)
+
+  * Styles and Text are compressed together if compression is enabled.
+    The compressed blob spans from the first FS to the third FS.
+  ** May be empty (zero-length) but the FS separators must be present,
+     unless the meta section contains an EOF flag (see Section 4).
+
+
+3. PHASE I STRUCTURE (backward compatible)
+================================================================================
+
+  [Pair Count: 2 bytes LE] [Meta KV pairs]
+  0x1C
+  0x1C
+  0x02 [Plain text body] EOF
+
+  Phase I has no styles (empty section between the two FS markers), no
+  resources, and no logic. The body starts with STX (0x02) and continues
+  until EOF. Version byte in meta = 0.
+
+
+4. PHASE II STRUCTURE
+================================================================================
+
+4A. STANDARD DOCUMENT (version >= 1, NO compression)
+-------------------------------------------------------
+
+  [Pair Count: 2 bytes LE] [Meta KV pairs]
+  0x1C [Styles Length: 4 LE] [Styles section bytes]
+  0x1C [Text Length: 4 LE] [0x02 ... markup ... 0x03]
+  0x1C [Resources Length: 4 LE] [Resource blobs]
+  0x1C [Logic -- empty for Phase II]
+
+  Length prefix convention: The 4-byte LE length appears AFTER the FS
+  marker and is NOT included in the length value itself. The length counts
+  only the section content bytes that follow it.
+    FS [Length=N: 4 bytes] [N bytes of section data]
+
+  FS markers are ALWAYS present, even for empty sections. An empty section
+  is: [FS] [0x00 0x00 0x00 0x00] (FS + 4-byte zero length).
+
+4A2. STANDARD DOCUMENT (version >= 1, WITH compression)
+----------------------------------------------------------
+
+  When meta key 31 (Compression Type) is non-zero, the Styles and Text
+  sections are compressed together into a single blob. The structure
+  between the first and third FS markers changes:
+
+  [Pair Count: 2 bytes LE] [Meta KV pairs]
+  0x1C [Compressed Length: 4 LE] [Decompressed Length: 4 LE] [compressed data]
+  0x1C [Resources Length: 4 LE] [Resource blobs]
+  0x1C [Logic -- empty for Phase II]
+
+  Compressed blob header:
+    [Compressed Length: 4 bytes LE]   -- bytes of compressed data that follow
+    [Decompressed Length: 4 bytes LE] -- size after decompression
+
+  The compressed data, once decompressed, yields:
+    [Styles Length: 4 LE] [Styles section bytes]
+    0x1C
+    [Text Length: 4 LE] [0x02 ... markup ... 0x03]
+
+  Note: The middle FS (between Styles and Text) is INSIDE the compressed
+  blob. After decompression, the parser finds individual section length
+  prefixes and the FS separator as normal.
+
+  Parser flow:
+    1. Read meta (uncompressed).
+    2. Read first FS.
+    3. Read Compressed Length (4 bytes) and Decompressed Length (4 bytes).
+    4. Read Compressed Length bytes of data.
+    5. Decompress to Decompressed Length bytes.
+    6. Parse decompressed data: [Styles Len][Styles][FS][Text Len][Text].
+    7. Read third FS (after compressed blob).
+    8. Read Resources section (uncompressed).
+
+
+4B. META-ONLY DOCUMENT (EOF flag)
+-----------------------------------
+
+  [Pair Count: 2 bytes LE] [Meta KV pairs including EOF flag]
+
+  When the meta section contains an EOF flag key (value = 1), the document
+  consists of ONLY the meta section. No FS separators follow. No styles,
+  text, resources, or logic sections exist.
+
+  This enables ultra-compact messages:
+    - Plain text SMS-style messages (subject = the message)
+    - Simple email notifications
+    - System status messages
+
+  Example: "Hello" message
+    [0x03 0x00]           Pair count: 3
+    [key] [0x01] [0x01]   Version: 1
+    [key] [0x01] [0x01]   EOF flag: 1
+    [key] [0x05] [Hello]  Subject: "Hello"
+    Total: ~14 bytes
+
+
+5. META SECTION ("The Envelope")
+================================================================================
+
+The meta section is a sequence of key/value pairs. It is NEVER compressed,
+allowing clients to read it without decompression. This makes it a self-
+contained "envelope" for inbox display.
+
+5A. META FORMAT
+-----------------
+
+  [Pair Count: 2 bytes LE] (total number of KV pairs)
+  [Key ID: 1 byte] [Value Length: 1 byte] [Value: N bytes]
+  [Key ID: 1 byte] [Value Length: 1 byte] [Value: N bytes]
+  ...
+
+  Arrays (e.g., multiple To recipients) use repeated keys. Each element
+  is its own KV pair with the same Key ID.
+
+5B. META KEY TABLE
+--------------------
+
+  Phase I keys (unchanged):
+
+  Key | Name              | Value Size | Description                      | Req?
+  ----|-------------------|------------|----------------------------------|-----
+  1   | QMail ID          | 16         | GUID assigned by sender          | *
+  2   | Subject           | Variable   | UTF-8 subject text (max 255)     |
+  12  | Attachment Count   | 1          | Number of attached files (0-255) | *
+  13  | To Mailbox        | 7          | Recipient address (repeated)     | *
+  14  | CC Mailbox        | 7          | CC recipient (repeated)          |
+  19  | From Mailbox      | 7          | Sender's mailbox address         | *
+  25  | Timestamp         | 4          | Unix epoch, LE uint32            | *
+
+  Phase II keys (new):
+
+  Key | Name              | Value Size | Description                      | Req?
+  ----|-------------------|------------|----------------------------------|-----
+  30  | Version           | 1          | Format version (0=Phase I, 1=II) | *
+  31  | Compression Type  | 1          | 0=none,1=zlib,2=LZ4,3=Zstd,4=Brotli |
+  32  | Default Style Set | 1          | 0=explicit,1=defaults,2+=named   |
+  33  | EOF Flag          | 1          | 1=meta-only document, no body    |
+  34  | Document Type     | 1          | 0=email,1=qweb page,2=attachment |
+  35  | AI Summary        | Variable   | AI-generated summary (max 255)   |
+  36  | Preview Text      | Variable   | First ~100 chars of body         |
+  37  | Subject Style ID  | 1          | Text style index for subject     |
+
+  Key IDs 38-255 are reserved for future use.
+
+  * = Required for email documents.
+
+5C. MAILBOX ADDRESS FORMAT (unchanged from Phase I)
+------------------------------------------------------
+
+  All mailbox addresses are 7 bytes:
+
+  Offset | Size    | Field         | Description
+  -------|---------|---------------|----------------------------------
+  0      | 2 bytes | Coin Group    | Network ID, LE. CloudCoin = 0x0006
+  2      | 1 byte  | Denomination  | Coin denomination
+  3      | 4 bytes | Serial Number | LE uint32
+
+
+6. COMPRESSION
+================================================================================
+
+When meta key 31 (Compression Type) is present and non-zero:
+
+  Scope: The Styles and Text sections are compressed TOGETHER into a single
+  blob with a two-field header. See Section 4A2 for the exact layout.
+
+  What is compressed:
+    - Styles section (including its length prefix)
+    - The FS marker between Styles and Text
+    - Text section (including its length prefix)
+
+  What is NOT compressed:
+    - Meta section (must be readable for envelope display)
+    - Resources section (images are already compressed formats)
+    - The first FS marker (before the compressed blob)
+    - The third FS marker (after the compressed blob, before Resources)
+
+  Compressed blob header (after the first FS):
+    [Compressed Length: 4 bytes LE]    -- how many compressed bytes follow
+    [Decompressed Length: 4 bytes LE]  -- expected size after decompression
+
+  This allows the parser to:
+    a) Allocate a decompression buffer of the right size.
+    b) Skip the compressed blob (using Compressed Length) to reach
+       Resources without decompressing, if only images are needed.
+
+  Compression algorithms:
+    0 = None (no compression)
+    1 = DEFLATE/zlib
+    2 = LZ4
+    3 = Zstandard (Zstd)
+    4 = Brotli
+    5-255 = Reserved
+
+
+7. DEFAULT STYLE SETS
+================================================================================
+
+When meta key 32 (Default Style Set) is >= 1:
+
+  Value 1: Use the client's built-in default style set. The styles section
+  may be empty (all GS markers, no records) or may contain delta overrides.
+
+  Value 2-255: Named style set IDs. These are predefined style collections
+  (e.g., "corporate," "newsletter," "casual") that clients recognize. The
+  exact definitions of named style sets are outside the scope of this
+  document (they are part of the client specification).
+
+  Delta encoding: When a default style set is active, any records present
+  in the styles section REPLACE the corresponding default record at the
+  same index. Records not present in the styles section use the default.
+
+  Client themes: Users may apply visual themes (dark mode, high contrast,
+  custom fonts) that override document styles. Themes are a client-side
+  rendering concern and are not part of the CBDF format specification.
+
+
+8. RENDERING MODEL
+================================================================================
+
+  Phase A: Immediate rendering.
+    1. Read meta section (always uncompressed).
+    2. If EOF flag: display subject as message. Done.
+    3. Decompress styles + text (if compressed).
+    4. Parse styles section (build style tables).
+    5. Parse text section (render content with image placeholders).
+    6. Display rendered content to user.
+
+  Phase B: Progressive resource loading (optional).
+    7. Stream resources section.
+    8. Replace image placeholders with actual images as they arrive.
+    9. Client may skip this phase entirely (abortable download).
+
+  This is analogous to how web browsers progressively render pages --
+  text and layout appear first, images fill in afterward.
+
+
+9. BYTE ORDER
+================================================================================
+
+  All multi-byte integers in CBDF are LITTLE-ENDIAN (LE).
+  This includes: pair counts, section lengths, timestamps, font IDs,
+  color values, image dimensions, and all other multi-byte fields.
+
+
+10. FILE EXTENSIONS
+================================================================================
+
+  .qmail   -- QMail email document
+  .qweb    -- QWeb page document
+  .cbdf    -- Generic CBDF document
+
+
+================================================================================
+END OF SPECIFICATION
+================================================================================

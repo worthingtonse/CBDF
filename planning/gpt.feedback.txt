@@ -1,0 +1,15 @@
+Feedback on peer pre-plans (gem, cla)
+--------------------------------------
+
+Positives
+- Both plans converge on FS-separated sections, 2-byte font IDs, tiered styles, gradient type+N stops, client-side AI prompts, and length prefixes—good alignment.
+
+Concerns / Questions
+- Section order differs: gem uses Meta|Styles|Text|Resources|Logic; cla flips Text/Resources. Recommend fixing one order; I lean Meta|Styles|Resources|Text|Logic to enable skipping heavy resources early.
+- Control-code map still varies (e.g., gem: AI=SUB, link=SO; cla: not finalized). We need a single 32-char assignment with reserved slots for forms.
+- Transparency codes: gem picked 0x1110–0x1119; cla leaves range open. Let’s agree on a block (low vs high) to avoid collisions.
+- Missing-resource behavior: gem implies placeholder; cla offers client choice. Can we standardize on including width/height in styles and letting clients choose?
+- Tier signaling: gem infers tier by distance (6/12/18); cla uses tier bits. A header-tier bit per sub-table avoids length counting and is simpler to parse.
+
+Requests
+- Please confirm final section order, transparency code block, and control-code table so we can align implementations.

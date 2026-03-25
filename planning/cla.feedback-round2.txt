@@ -1,0 +1,200 @@
+================================================================================
+  FEEDBACK ON GEMINI'S CONTROL COMMANDS & FONT EFFECTS
+  From: Claude Opus (cla)
+  Date: 2026-03-25
+================================================================================
+
+
+================================================================================
+FEEDBACK ON gem.control-commands.txt
+================================================================================
+
+Overall: This is a strong first draft. The table is clean, the payload
+definitions are clear, and most assignments align with the consensus across
+all three models. Six issues to address:
+
+--- ISSUES ---
+
+CC-1. AI PROMPT LENGTH: 1 byte is too short.
+  Current: 0x1A SUB = [Len: 1B] [String]
+  Problem: 1-byte length = max 255 characters. Real prompts will exceed this.
+  Example: "Create a professional email header with a gradient background
+  transitioning from navy blue to midnight purple, with the company logo
+  centered, a thin gold separator line below, and the sender's name in
+  an elegant serif font with a subtle emboss effect" = 254 characters.
+  That barely fits, and more complex prompts (image generation, layout
+  descriptions) will easily exceed 255.
+  RECOMMENDATION: Use 2-byte LE length (max 65535 chars). This matches
+  what the cla and gpt plans specify. Cost: 1 extra byte per AI prompt.
+  Revised: 0x1A SUB = [Type: 1B] [Len: 2B LE] [String]
+  The Type byte (0=style, 1=image, 2=layout) is also missing from Gemini's
+  definition but was agreed upon in all three pre-plans.
+
+CC-2. DC3 (0x13): Layer targeting vs Table style.
+  Current: 0x13 DC3 = "Apply Layer Style" [Index: 1B]
+  Problem: Our plan (cla) and GPT both proposed DC3 for "Apply Table Style."
+  Gemini uses it for layer targeting instead. This means there is NO control
+  code for applying a table style.
+  Questions:
+    a) How does a table in the text section get its table-wide style applied?
+       Does it use DC2 (panel style)? That conflates two different style types.
+    b) Is layer targeting even needed as a control code? Layers could be
+       assigned as a property of the container style record (the container's
+       style already includes a layer ID in our plan's D33, byte 4).
+  RECOMMENDATION: Keep DC3 for table styles. Layer assignment is a property
+  of the container style record, not a text-stream command. If dynamic layer
+  switching is needed, that's a Logic section concern.
+  Alternative: If we keep Gemini's assignment, we need a different code for
+  table styles. 0x06 ACK (currently "reserved for Phase III") could work.
+
+CC-3. 0x05 ENQ = "Request Resource" -- is this Phase II?
+  This implies the client can request specific resources from the server
+  mid-render. This is an interactive protocol feature, not a document format
+  feature. In Phase II, the document is a static file: the resources section
+  either has the data or it doesn't. "Requesting" a resource implies a
+  client-server protocol that we haven't designed.
+  RECOMMENDATION: Reserve 0x05 for Phase III. Label it "Reserved (interactive
+  resource request)." This keeps Phase II simple and non-interactive.
+
+CC-4. 0x08 BS = "Backspace" for typing effects.
+  Same concern: this is a dynamic/animated behavior that belongs in the Logic
+  section. In Phase II, there's no execution engine to interpret "move cursor
+  back." Including it in the control character table now is fine for
+  reservation purposes, but the description should clarify it's not
+  functional until the Logic section exists.
+  RECOMMENDATION: Change description to "Reserved (typing/animation effects,
+  Phase III)" or keep it but note it requires Logic section support.
+
+CC-5. 0x18 CAN = "Cancel / Hide element by ID."
+  This is dynamic show/hide behavior. The text section is a static document;
+  hiding elements is a Logic section operation. Including this in the
+  control character table creates ambiguity: does a Phase II parser execute
+  this (hide the element during initial render), or is it only meaningful
+  when the Logic section is active?
+  RECOMMENDATION: Either:
+    a) Reserve for Phase III (cleanest), or
+    b) Define it as "initially hidden" -- the element is parsed but not
+       rendered until the Logic section or a user action reveals it. This
+       is useful for modals (defined in text but hidden by default).
+  If (b), rename to "Initially Hidden" rather than "Cancel/Hide."
+
+CC-6. MISSING: Nav bar start command.
+  US (0x1F) separates nav items, but there's no way to signal "this is the
+  start of a nav bar" vs "this is the start of a list." Both use US as an
+  item separator.
+  Options:
+    a) Use one of the unassigned codes (0x06 or 0x19) as "Start Nav Bar"
+       with a payload of [nav_style_index: 1B].
+    b) Use DC2 (Apply Panel Style) where the panel style record has a
+       "type" field that indicates "nav bar." The parser infers that US
+       items within this panel are nav items.
+    c) Use a sub-type byte after DC2: DC2 [type: 1B] [index: 1B] where
+       type 0=panel, type 1=nav, type 2=table, etc.
+  RECOMMENDATION: Option (a) is cleanest. Assign 0x19 EM = "Start Nav Bar"
+  [nav_style_index: 1B]. Then US separates items, and ETB (0x17) ends it.
+
+--- MINOR NOTES ---
+
+CC-M1. 0x10 DLE = "Data Escape" for bypassing command parsing. This is
+  smart -- it solves the problem of binary data within the text section
+  that might contain bytes 0x00-0x1F. But: what terminates the escaped
+  data? Is there a length prefix? Without one, the parser can't know when
+  to resume command interpretation.
+  SUGGESTION: Define as [0x10] [Length: 2B LE] [Raw data]. The length
+  tells the parser exactly how many bytes to pass through uninterpreted.
+
+CC-M2. 0x07 BEL = "Alert / Sound" with [ID: 1B]. Nice addition. But
+  where are the sound IDs defined? Is there a built-in sound table (like
+  the font table), or does the ID reference a resource in the resources
+  section? This needs clarification.
+
+CC-M3. The table is well-formatted and easy to read. Good work.
+
+
+================================================================================
+FEEDBACK ON gem.effects.txt
+================================================================================
+
+Overall: This is nearly identical to our plan's R03 effect list. Only minor
+differences. The table is clean and the parameter suggestions are helpful.
+
+--- ISSUES ---
+
+EF-1. Effect #15: "AI Custom" vs "Custom (with params)."
+  Gemini: Effect 15 = "AI Custom" -- the client's AI chooses an effect,
+  referencing a SUB (0x1A) prompt.
+  Our plan: Effect 15 = "Custom" -- references a font-effects sub-table
+  entry with full parameters (colors, speeds, etc.).
+  QUESTION: Can both coexist? An AI-driven effect and a parameter-driven
+  custom effect serve different needs:
+    - AI Custom: "make this text look magical" (no specific parameters)
+    - Parameterized Custom: "gradient from #FF0000 to #0000FF at 45 degrees
+      with 3px outline in #FFFFFF" (exact parameters)
+  RECOMMENDATION: Keep effect 15 as "Custom (parameterized)" referencing
+  the font-effects sub-table. AI-driven effects are already handled by the
+  SUB (0x1A) AI prompt command in the text section -- there's no need to
+  duplicate that mechanism inside the effect ID system. If someone wants
+  AI-driven effects, they use a SUB prompt, not effect ID 15.
+
+EF-2. Parameter definitions are "suggested" but not formalized.
+  The "Parameters" column says things like "Blur, Distance, Color" but
+  doesn't specify byte sizes or encoding. For Phase II implementation,
+  each effect needs exact byte layouts.
+  EXAMPLE: Effect 1 (Drop Shadow):
+    - Blur: how many bits? 4 bits (0-15px)? 8 bits (0-255px)?
+    - Distance: same question
+    - Color: 2 bytes R5G6B5? Or does it inherit from the text color?
+  RECOMMENDATION: This is fine for a planning document. The exact byte
+  layouts belong in the full style record specification (Step 3 of our
+  plan). But note that many of these parameters may not need to be per-
+  effect if they're already in the text style record's rare tier (e.g.,
+  the effect color is in bytes 14-15 of the rare tier).
+
+EF-3. Animated effects (3, 5, 8, 9, 10) need a standardized animation
+  model.
+  Five of the 16 effects are animated. Questions:
+    a) What is the animation frame rate? Client-determined?
+    b) Is there a "animation speed" parameter common to all animated effects?
+    c) Can animated effects be paused/resumed? (Probably Logic section.)
+    d) What happens in a non-animated renderer (e.g., a print preview)?
+       SUGGESTION: Each animated effect should have a defined "static frame"
+       that non-animated renderers display (e.g., Flames shows the midpoint
+       of the fire cycle as a static gradient).
+  RECOMMENDATION: Define a common animation parameter byte shared by all
+  animated effects: [speed: 4 bits (0=paused, 1=slow, 15=fast)] +
+  [loop_mode: 2 bits (0=loop, 1=bounce, 2=once, 3=random)] +
+  [reserved: 2 bits]. This goes in the rare tier alongside the effect ID.
+
+--- THINGS DONE WELL ---
+
+EF-G1. The effect list covers the CoolText.com aesthetic well. Flames,
+  glitter, neon, metallic -- these match the stakeholder's vision.
+
+EF-G2. Having "None" as effect 0 is correct and important -- it means
+  the default (no effect) costs zero bits in practice.
+
+EF-G3. Including suggested parameters gives implementers a starting point
+  even before the full byte layouts are defined.
+
+
+================================================================================
+SUMMARY: WHAT NEEDS TO HAPPEN NEXT
+================================================================================
+
+Before these files can become part of the canonical spec:
+
+1. Fix the AI prompt payload (CC-1): Add type byte + 2-byte length.
+2. Resolve DC3 conflict (CC-2): Table style vs layer targeting.
+3. Decide Phase II vs Phase III for interactive codes (CC-3, CC-4, CC-5).
+4. Add nav bar start command (CC-6).
+5. Define DLE data escape length format (CC-M1).
+6. Resolve effect #15 semantics (EF-1).
+7. Define animated effect common parameters (EF-3).
+
+Items 1-4 affect the control character table and should be resolved before
+any parser implementation begins. Items 5-7 can be resolved during the
+style record specification phase.
+
+================================================================================
+END OF FEEDBACK
+================================================================================

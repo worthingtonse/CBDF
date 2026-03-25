@@ -1,0 +1,188 @@
+================================================================================
+  CBDF SPECIFICATION: FONT SYSTEM
+  Document: 09-Font-System
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+CBDF uses a fixed font lookup table embedded in the client software. Fonts
+are referenced by a 2-byte (16-bit) Font ID in text style records. This
+eliminates the need to transmit font names or font files (unless a custom
+font is required via the Resources section).
+
+
+2. FONT ID ENCODING (2 bytes)
+================================================================================
+
+  Bit layout:
+    Bits 0-11:  Font Family Index (0-4095)
+    Bits 12-15: Sub-variant Hints (4 bits)
+
+  Byte layout (little-endian):
+    Byte 0 (low):  Lower 8 bits of Font Family Index
+    Byte 1 (high): Upper 4 bits of Font Family Index + 4 Sub-variant bits
+
+  2A. FONT FAMILY INDEX (12 bits, 0-4095)
+  ------------------------------------------
+
+    Range     | Assignment
+    ----------|----------------------------------------------
+    0         | Default system font (client's choice)
+    1-2000    | CoolText.com free fonts (assigned by table)
+    2001-3999 | Reserved for future standard fonts
+    4000-4094 | Custom fonts (referenced in Resources section)
+    4095      | Reserved (error/unknown)
+
+    Font family 0 ("default") means the client uses its own default font.
+    The exact font varies by client but should be a readable sans-serif.
+
+    Fonts 1-2000 are assigned from https://cooltext.com/Fonts. The
+    canonical font table is maintained separately and distributed with
+    all CBDF-compliant clients. Each entry maps a Font Family Index to
+    a font file name and metadata.
+
+    Fonts 4000-4094 reference custom font files stored in the Resources
+    section (resource type = 4, "font"). The Font Family Index minus 4000
+    gives the ordinal position of the custom font in the Resources section
+    (e.g., 4000 = first custom font resource, 4001 = second, etc.).
+
+  2B. SUB-VARIANT HINTS (4 bits)
+  ---------------------------------
+
+    These bits provide HINTS for sub-variant selection when a font family
+    includes multiple variants beyond bold/italic (which are in the flags
+    byte of the text style record).
+
+    Bit 12: Condensed (narrower glyphs)
+    Bit 13: Extended (wider glyphs)
+    Bit 14: Monospace variant (if the family has both proportional and mono)
+    Bit 15: Reserved (must be 0)
+
+    These are HINTS, not requirements. If the requested sub-variant does
+    not exist for the font family, the client falls back to the base variant.
+
+    CONFLICT RESOLUTION: If the flags byte says "Bold" and the sub-variant
+    hint says "Condensed," the result is "Bold Condensed" -- both apply.
+    If the font family has no Bold Condensed variant, the client tries:
+      1. Bold Condensed (exact match)
+      2. Bold (drop the hint, keep the flag)
+      3. Base variant (drop both)
+    Flags (bold/italic) take priority over hints (condensed/extended/mono).
+
+    Bold, Italic, Underline, and Strikethrough are NOT part of the Font ID.
+    They are in the Flags byte (byte 3) of the text style record.
+
+
+3. FONT EFFECTS (4-bit ID)
+================================================================================
+
+Font effects are visual filters applied to rendered text. Each text style's
+rare tier includes a 4-bit effect ID (0-15) and a 4-bit intensity value.
+
+  3A. STANDARD EFFECT TABLE
+  ----------------------------
+
+    ID | Effect Name     | Animated? | Description
+    ---|-----------------|-----------|-------------------------------------
+    0  | None            | No        | Plain rendering (default)
+    1  | Drop Shadow     | No        | Offset shadow behind text
+    2  | Outer Glow      | No        | Diffuse light around text edges
+    3  | Pulsing Glow    | Yes       | Breathing/pulsing light effect
+    4  | Linear Gradient | No        | 2-color blend across text fill
+    5  | Multi-Gradient  | No        | Rainbow/multi-color sweep
+    6  | Outline/Stroke  | No        | Border around each glyph
+    7  | Emboss/Bevel    | No        | 3D chiseled/raised look
+    8  | Glitter         | Yes       | Shimmering sparkle particles
+    9  | Flames          | Yes       | Fire rising from text
+    10 | Neon            | No        | Glowing gas-tube look
+    11 | 3D Extrude      | No        | Depth projection into Z-space
+    12 | Reflection      | No        | Mirror-like floor reflection
+    13 | Frosted Glass   | No        | Blurred background distortion
+    14 | Metallic        | No        | Chrome/gold/silver surface
+    15 | Custom          | Varies    | Full params in Font Effects sub-table
+
+  Effects 1-14 use standardized rendering with default parameters. The
+  intensity nibble (0-15) scales the effect's prominence. Intensity 0
+  with a non-zero effect ID means "use the effect at minimum intensity."
+
+  Effect 15 ("Custom") references the Font Effects sub-table in the Styles
+  section for full parameterization (see Styles spec, Section 6G).
+
+  3B. EFFECT COLOR
+  ------------------
+
+  The text style rare tier includes an Effect Color (bytes 14-15, R5G6B5).
+  This color is used by effects that need a secondary color:
+    - Drop Shadow: shadow color
+    - Outer Glow / Pulsing Glow: glow color
+    - Linear Gradient: second gradient color (first = text color)
+    - Outline/Stroke: outline color
+    - Neon: tube color
+
+  If the effect doesn't use a secondary color, the Effect Color is ignored.
+
+  3C. ANIMATED EFFECTS
+  ----------------------
+
+  Effects 3 (Pulsing Glow), 8 (Glitter), and 9 (Flames) are animated.
+  Animation parameters for standard effects:
+    - Speed: Controlled by the intensity nibble (0=paused, 15=fastest).
+    - Loop: All standard animated effects loop continuously.
+
+  For custom animated effects (ID=15), the Font Effects sub-table record
+  includes explicit animation parameters:
+    Speed (4 bits): 0=paused, 1=slow, 15=fast
+    Loop mode (2 bits): 0=loop, 1=bounce, 2=play once, 3=random
+
+  NON-ANIMATED RENDERERS (e.g., print preview, static export):
+    Animated effects should render a static "representative frame":
+    - Pulsing Glow: glow at 50% intensity
+    - Glitter: random sparkle positions, frozen
+    - Flames: mid-cycle fire, as a warm gradient
+
+
+4. FONT TABLE MAINTENANCE
+================================================================================
+
+The canonical font table (mapping Font Family Index to font files) is:
+
+  - Maintained outside the CBDF format specification.
+  - Distributed with all CBDF-compliant client software.
+  - Versioned independently (the table can grow without changing the CBDF
+    format version).
+  - The first 2000 entries are sourced from CoolText.com free fonts.
+  - New entries are appended (never reordered) to maintain backward
+    compatibility.
+
+  If a client encounters a Font Family Index it does not have in its table,
+  it falls back to the default system font (index 0) and may display a
+  warning to the user.
+
+
+5. CUSTOM FONTS
+================================================================================
+
+Documents that need fonts not in the standard table can embed them:
+
+  1. Font file stored in the Resources section (type = 4, "font").
+  2. Font Family Index set to 4000-4094 in the text style record.
+  3. Client loads the custom font from the resource and uses it for
+     rendering.
+
+  Supported custom font formats:
+    - WOFF2 (preferred, smallest)
+    - TTF/OTF
+    - WOFF
+
+  Custom fonts increase document size. They should only be used when
+  the standard font table does not include the desired font.
+
+  Maximum 95 custom fonts per document (indices 4000-4094).
+
+
+================================================================================
+END OF SPECIFICATION
+================================================================================

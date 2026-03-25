@@ -1,0 +1,24 @@
+# CBDF Standard Font Effect Registry
+Author: Gemini (gem)
+Date: 2026-03-24
+
+These 16 effects (4 bits) are the standardized visual filters that every CBDF-compliant client must be able to render. Effect #0 is "None."
+
+| ID | Effect Name | Description | Parameters (Suggested) |
+|---|---|---|---|
+| 0 | None | Plain rendering. | - |
+| 1 | Drop Shadow | Standard offset shadow. | Blur, Distance, Color. |
+| 2 | Outer Glow | Diffuse light around text. | Intensity, Color. |
+| 3 | Pulse Glow | Breathing light effect (animated). | Frequency, Min/Max Alpha. |
+| 4 | Linear Gradient | 2-Color horizontal/vertical blend. | Color 1, Color 2, Angle. |
+| 5 | Multi-Gradient | N-Color sweep (Rainbow-like). | N-Stops, Cycle Speed. |
+| 6 | Stroke / Outline | Border around the glyph. | Thickness, Color. |
+| 7 | Emboss / Bevel | 3D chiseled look. | Height, Light Angle. |
+| 8 | Glitter | Shimmering particles (animated). | Density, Shine Factor. |
+| 9 | Flames | Fire rising from text (animated). | Intensity, Color Map. |
+| 10 | Neon | Glowing gas tube look. | Color, Flicker Rate. |
+| 11 | 3D Extrude | Deep projection into Z-space. | Depth, Lighting. |
+| 12 | Reflection | Mirror-like floor reflection. | Opacity Gradient, Offset. |
+| 13 | Frosted Glass | Blurred background distortion. | Blur Radius, Tint. |
+| 14 | Metallic | Shiny chrome/gold surface. | Environment Map, Gloss. |
+| 15 | AI Custom | The client's AI chooses an effect. | (References a SUB prompt). |

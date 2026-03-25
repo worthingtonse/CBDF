@@ -1,0 +1,336 @@
+================================================================================
+  CBDF SPECIFICATION: TEXT SECTION
+  Document: 04-Text-Section
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+The Text section contains the document's readable content -- UTF-8 text
+interspersed with control codes that apply styles, insert elements, and
+mark semantic boundaries.
+
+It sits between the second FS (end of Styles) and the third FS (start of
+Resources). It begins with a 4-byte LE length prefix, followed by STX
+(0x02) and ending with ETX (0x03).
+
+Structure:
+  [Length: 4 bytes LE] [STX] [content...] [ETX]
+
+
+2. PLAIN-TEXT EXTRACTION
+================================================================================
+
+A plain-text reader extracts readable text by:
+  1. Decompressing the section (if compression is enabled in meta).
+  2. Scanning all bytes between STX and ETX.
+  3. Keeping only:
+     - Bytes >= 0x20 (all printable ASCII and UTF-8)
+     - 0x09 (HT) = Tab
+     - 0x0A (LF) = Line feed
+     - 0x0D (CR) = Carriage return
+  4. Stripping all other bytes 0x00-0x1F and their payloads.
+
+To strip payloads correctly, the plain-text extractor must understand
+which control codes have payloads and how long they are:
+
+  Code | Payload to skip
+  -----|------------------------------------------
+  0x0E | 1 + 1 + N bytes (type + length + target)
+  0x10 | 2 + N bytes (length LE + raw data)
+  0x11 | 1 byte (style index)
+  0x12 | 1 byte (style index)
+  0x13 | 1 byte (style index)
+  0x15 | 1 byte (element ID), or 3 if ID=0xFF
+  0x16 | 1 byte (resource ID)
+  0x19 | 2 bytes (type + style index)
+  0x1A | 1 + 2 + N bytes (type + length LE + prompt)
+  0x1B | 1 + variable (Phase III; skip code byte)
+  All others | 0 bytes (no payload)
+
+
+3. TEXT SECTION STRUCTURE
+================================================================================
+
+  [STX]
+    [Optional: SOH block (styled subject)]
+    [Body content: text + control codes]
+  [ETX]
+
+  SOH block (if present, for emails):
+    [SOH] [DC1 style_id] Styled subject text [DC4]
+
+  The SOH block appears inside the STX/ETX region so the parser has a
+  single mode for reading styled content.
+
+
+4. CONTROL CODE USAGE PATTERNS
+================================================================================
+
+4A. APPLYING TEXT STYLES
+--------------------------
+
+  Switch to a text style:
+    [DC1 index]  -- applies text style #index from the Text Styles sub-table
+
+  Revert to previous style:
+    [DC4]        -- pops the style stack
+
+  Replace current style:
+    [DC1 new_index] -- pushes new style (stack grows)
+
+  Example:
+    [DC1 0x00] This is default text. [DC1 0x01] This is bold.
+    [DC4] This is default again.
+
+
+4B. CONTAINERS
+----------------
+
+  Open a container:
+    [DC2 index]  -- starts container with composite style #index
+
+  Close a container:
+    [ETB]        -- closes the current block and pops its style
+
+  Nested containers:
+    [DC2 0x00]
+      Outer content
+      [DC2 0x01]
+        Inner content
+      [ETB]
+      More outer content
+    [ETB]
+
+
+4C. TABLES
+------------
+
+  Start a table:
+    [DC3 index]  -- starts table with table style #index
+
+  Cells separated by US (0x1F). Rows separated by RS (0x1E).
+  End table with ETB (0x17).
+
+  Example (2 rows, 3 columns):
+    [DC3 0x00] Name [US] Age [US] City [RS] Alice [US] 30 [US] NYC [ETB]
+
+  Text styles can be applied within cells:
+    [DC3 0x00] [DC1 0x02] Header1 [DC4] [US] [DC1 0x02] Header2 [DC4]
+    [RS] Data1 [US] Data2 [ETB]
+
+
+4D. LISTS AND NAV BARS
+-------------------------
+
+  Start an item block:
+    [EM type style_index]
+
+  Items separated by US (0x1F). Block ends with ETB (0x17).
+
+  Unordered list (type=0):
+    [EM 0x00 0x00] First item [US] Second item [US] Third item [ETB]
+
+  Ordered list (type=1):
+    [EM 0x01 0x00] Step one [US] Step two [US] Step three [ETB]
+
+  Nav bar (type=2):
+    [EM 0x02 0x00]
+      [SO 0x00 0x05 /home] Home [SI]
+    [US]
+      [SO 0x00 0x06 /about] About [SI]
+    [US]
+      [SO 0x00 0x08 /contact] Contact [SI]
+    [ETB]
+
+
+4E. LINKS
+-----------
+
+  Link start:
+    [SO type length target_bytes] visible link text [SI]
+
+  Types:
+    0 = URL: [SO 0x00 len url_bytes] text [SI]
+    1 = QWeb Page ID: [SO 0x01 len page_id_bytes] text [SI]
+    2 = Mailbox: [SO 0x02 0x07 mailbox_7_bytes] text [SI]
+    3 = Action: [SO 0x03 0x01 action_id] text [SI]
+
+  Example:
+    Visit [SO 0x00 0x12 https://example.com] our website [SI] today.
+
+
+4F. IMAGES
+------------
+
+  Insert image at current position:
+    [SYN resource_id]
+
+  The resource_id matches a Resource ID in the Resources section.
+  The image's display properties (size, fit, alignment) come from the
+  Image Definitions sub-table in the Styles section.
+
+  Example:
+    Here is our logo: [SYN 0x01] And here is more text.
+
+
+4G. AI PROMPTS
+----------------
+
+  Embed an AI prompt:
+    [SUB type len_lo len_hi prompt_bytes]
+
+  Types: 0=style, 1=image, 2=layout
+
+  Example (style prompt, 44 bytes):
+    [SUB 0x00 0x2C 0x00] Create a cloudy sky style with soft blue tones
+
+
+4H. ELEMENT IDS
+-----------------
+
+  Assign a stable ID to the next element:
+    [NAK id] [element]
+
+  IDs must be unique and stable across re-serialization.
+
+  Example:
+    [NAK 0x01] [DC2 0x05] This container has ID=1 [ETB]
+    [NAK 0x02] [SYN 0x03]  (image with ID=2)
+
+  Extended ID (for documents with >254 elements):
+    [NAK 0xFF] [id_lo] [id_hi]  (2-byte LE extended ID)
+
+
+4I. PARAGRAPH AND PAGE BREAKS
+--------------------------------
+
+  Paragraph break:
+    [VT]  -- inserts paragraph spacing (larger than a line break)
+
+  Page break:
+    [FF]  -- starts a new rendering page
+
+  Line break:
+    [LF] or [CR][LF]  -- standard line break
+
+
+5. WORKED EXAMPLES
+================================================================================
+
+5A. SIMPLE STYLED EMAIL: "Hello World" in bold red
+-----------------------------------------------------
+
+  Meta section (abbreviated):
+    Pair count: 5
+    Key 30: Version = 1
+    Key 2:  Subject = "Greeting"
+    Key 19: From = [mailbox]
+    Key 13: To = [mailbox]
+    Key 25: Timestamp = [4 bytes]
+
+  Styles section:
+    Layout: 0x00 (main only)
+    No page background (first byte after layout = GS)
+    Text styles sub-table: 2 records, base tier
+      Style 0: Arial 12pt, normal, black on transparent
+      Style 1: Arial 14pt, bold, red (#F800) on transparent
+
+  Text section hex dump:
+    02                      STX
+    01                      SOH (styled subject)
+      11 01                 DC1, apply text style #1 (bold red)
+      47 72 65 65 74 69     "Greeti"
+      6E 67                 "ng"
+      14                    DC4 (pop style)
+    11 00                   DC1, apply text style #0 (default)
+    48 65 6C 6C 6F 20       "Hello "
+    11 01                   DC1, apply text style #1 (bold red)
+    57 6F 72 6C 64 21       "World!"
+    14                      DC4 (pop)
+    03                      ETX
+
+  Plain text extraction result:
+    Greeting Hello World!
+
+
+5B. TWO-COLUMN LAYOUT WITH NAV BAR
+-------------------------------------
+
+  Layout byte: 0x11 (header + main, 2 columns)
+
+  Text section hex dump (conceptual):
+    02                          STX
+    12 00                       DC2, container style #0 (header panel)
+      19 02 00                  EM type=2(nav), nav style #0
+        0E 00 05 2F686F6D65     SO URL "/home"
+        48 6F 6D 65             "Home"
+        0F                      SI
+      1F                        US (next nav item)
+        0E 00 06 2F61626F7574   SO URL "/about"
+        41 62 6F 75 74          "About"
+        0F                      SI
+      17                        ETB (end nav bar)
+    17                          ETB (end header container)
+    12 01                       DC2, container style #1 (left column)
+      11 00                     DC1, text style #0
+      4C 65 66 74 20            "Left "
+      63 6F 6C 75 6D 6E        "column"
+    17                          ETB
+    12 02                       DC2, container style #2 (right column)
+      11 00                     DC1, text style #0
+      52 69 67 68 74 20         "Right "
+      63 6F 6C 75 6D 6E        "column"
+    17                          ETB
+    03                          ETX
+
+  Plain text extraction:
+    Home About Left column Right column
+
+
+5C. META-ONLY MESSAGE (EOF flag)
+----------------------------------
+
+  Complete document hex dump:
+    03 00                   Pair count: 3
+    1E 01 01                Key 30 (version), length 1, value 1
+    21 01 01                Key 33 (EOF flag), length 1, value 1
+    02 05 48 65 6C 6C 6F    Key 2 (subject), length 5, "Hello"
+
+  Total: 14 bytes. No FS markers, no styles, no text, no resources.
+  Client displays "Hello" as the message.
+
+
+5D. TABLE EXAMPLE
+-------------------
+
+  Text section (conceptual):
+    02                      STX
+    13 00                   DC3, table style #0
+      11 02                 DC1, text style #2 (header style)
+      4E 61 6D 65           "Name"
+      14                    DC4
+    1F                      US (next cell)
+      11 02                 DC1, text style #2
+      41 67 65              "Age"
+      14                    DC4
+    1E                      RS (next row)
+      41 6C 69 63 65        "Alice"
+    1F                      US
+      33 30                 "30"
+    1E                      RS
+      42 6F 62              "Bob"
+    1F                      US
+      32 35                 "25"
+    17                      ETB (end table)
+    03                      ETX
+
+  Plain text extraction:
+    Name Age Alice 30 Bob 25
+
+
+================================================================================
+END OF SPECIFICATION
+================================================================================

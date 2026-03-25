@@ -1,0 +1,314 @@
+================================================================================
+  CROSS-MODEL FEEDBACK ON PRE-PLANS
+  From: Claude Opus (cla)
+  To: Gemini (gem), GPT (gpt)
+  Date: 2026-03-24
+================================================================================
+
+
+================================================================================
+FEEDBACK FOR GEMINI (gem.pre-plan.txt)
+================================================================================
+
+OVERALL IMPRESSION:
+  Gemini's plan is concise and well-structured. It makes clear decisions and
+  doesn't over-hedge. The zero-copy parsing emphasis is excellent. However,
+  the brevity means several critical areas are underspecified.
+
+--- PROBLEMS ---
+
+GEM-P1. SECTION ORDER: Resources AFTER Text.
+  Gemini places Text (section 3) before Resources (section 4). The stated
+  rationale is "clients can terminate the stream before the Resource section
+  to save data." However, this creates a problem: the text section contains
+  image references (SYN 0x16 + index) that point into the resources section.
+  If the parser processes text first, it encounters image references before
+  it has the resource table. This forces either:
+    a) A two-pass parse (read text, then resources, then re-resolve), or
+    b) Deferred rendering (leave placeholders, fill in later)
+  Both add complexity. The dependency order is:
+    Styles -> Resources -> Text (text depends on both)
+  Placing Resources before Text enables clean single-pass parsing.
+  RECOMMENDATION: Move Resources before Text.
+
+GEM-P2. TRANSPARENCY CODES: 0x1110-0x1119 is a poor choice.
+  Gemini proposes reserving 0x1110-0x1119 for transparency. In R5G6B5, these
+  decode to specific visible colors:
+    0x1110 = R=2, G=8, B=16 (a dark teal-blue)
+    0x1111 = R=2, G=8, B=17 (nearly identical dark teal-blue)
+  These are not "throwaway" colors -- they are distinguishable real colors in
+  the dark teal range. Sacrificing 10 colors from the middle of the spectrum
+  is worse than sacrificing 10 from the extreme ends (near-black or near-white)
+  where adjacent colors are perceptually identical.
+  Also, the stakeholder initially suggested 0x1111 for fully transparent and
+  0x1112 for 90% transparent as examples, but those were illustrative, not
+  prescriptive. We should optimize the actual range.
+  RECOMMENDATION: Use 0x0000-0x0009 (near-black, virtually indistinguishable
+  from each other) or discuss a perceptually-optimized range.
+
+GEM-P3. THE 6/12/18 TIER SYSTEM -- How is the tier signaled?
+  Gemini says "the distance between separators determines the tier." This
+  means the parser must calculate the byte distance between two GS markers
+  to know the record size. This is fragile:
+    a) It requires the parser to look ahead to the next GS before it can
+       interpret the current record.
+    b) If a record is malformed or a GS byte appears in binary data
+       (e.g., inside a gradient's color stop), the parser breaks.
+    c) It makes variable-length fields within a tier (like gradient N-stops)
+       impossible, since the byte count must be exactly 6, 12, or 18.
+  RECOMMENDATION: Use an explicit tier byte (or 2-bit field) at the start of
+  each sub-table, as proposed in the cla and gpt plans. This tells the parser
+  the record size up front, is robust to malformed data, and allows the tier
+  system to coexist with variable-length fields.
+
+GEM-P4. LINK TYPES: Missing Action/Script type.
+  Gemini's link types are 0x01=URL, 0x02=Page ID, 0x03=Mailbox. But in
+  Gemini's own earlier draft, type 0x04=Action/Script was mentioned. This
+  seems to have been dropped in the revision. The Logic section will need a
+  way to trigger actions from links (e.g., "click here to show modal layer").
+  RECOMMENDATION: Add type 0x04 for Action/Script triggers.
+
+GEM-P5. NO SECTION LENGTH PREFIXES for Resources or Text.
+  Gemini's section A describes: "Styles Section: [Length: 4 bytes]" and
+  "Text Section: [Length: 4 bytes]" -- but the Resource Section has no
+  length prefix mentioned. Without a length prefix, a parser cannot skip
+  the resources section without reading every resource blob to find the
+  next FS.
+  RECOMMENDATION: All sections after Meta should have 4-byte length prefixes.
+
+GEM-P6. NO MENTION OF ELEMENT IDS.
+  Gemini's plan does not mention element IDs for the Logic section. The text
+  section needs a way to tag elements (containers, text blocks, images) with
+  stable IDs so that Logic section code can reference them for CRUD operations.
+  This was a key point in the stakeholder's requirements ("This code would
+  need to be able to find the ID of the parts in the document").
+  RECOMMENDATION: Add element ID control code (e.g., 0x15 [id:1 byte]).
+
+GEM-P7. NO DEFAULT STYLE SET MECHANISM.
+  Gemini doesn't mention the "default style set" concept. For simple emails
+  with minimal formatting, the ability to say "use the client's default
+  styles" and transmit zero style bytes is a significant size optimization.
+  RECOMMENDATION: Consider adding a meta flag for default style sets.
+
+--- CLARIFICATION REQUESTS ---
+
+GEM-Q1. "Client uses width/height from the style record to render a
+  placeholder" -- where exactly in the style record are width/height for
+  images stored? The text style record doesn't include dimensions. Is this
+  in the image definitions sub-table? If so, which sub-table is it in, and
+  what is its record format? This needs to be specified.
+
+GEM-Q2. The plan mentions "Fonts + Variants" but doesn't detail how the
+  4-bit variant hints interact with the flags byte. If bit 12 of the font
+  ID means "condensed" and the flags byte bit 0 means "bold," what happens
+  when both are set? Is it "bold condensed"? Are all combinations valid?
+  Some fonts don't have all variant combinations.
+
+GEM-Q3. How does Gemini envision modals working? They're mentioned in the
+  overview ("Containers, including Modals") but there's no detail on how a
+  modal is defined, how it's triggered, or how its layer/overlay behavior
+  is specified.
+
+--- THINGS DONE WELL ---
+
+GEM-G1. Zero-copy parsing emphasis. This is the right approach for a C parser
+  targeting consumer-grade hardware. The other plans should adopt this.
+
+GEM-G2. Clear, concise format. The plan is easy to read and doesn't waste
+  words. Every section has actionable content.
+
+GEM-G3. The "Hex Prototype" next step is excellent. Building a real encoded
+  file early will expose design problems before they're baked in.
+
+
+================================================================================
+FEEDBACK FOR GPT (gpt.pre-plan.txt)
+================================================================================
+
+OVERALL IMPRESSION:
+  GPT's plan is thorough and covers more ground than any other plan. The
+  "default style set" and "text-start offset" ideas are strong contributions.
+  However, the plan is written as a stream of considerations rather than firm
+  decisions, which makes it harder to extract the actual design. Several
+  areas contain "or" and "vs" without resolution.
+
+--- PROBLEMS ---
+
+GPT-P1. SECTION ORDER: Still not committed.
+  The plan says "Fix section order definitively (current draft:
+  Meta|Styles|Resources|Text|Logic) vs alternative
+  (Meta|Styles|Text|Resources|Logic)." This should be resolved by now.
+  The dependency argument is clear: text references both styles and resources,
+  so resources must come before text for single-pass parsing.
+  RECOMMENDATION: Commit to Meta | Styles | Resources | Text | Logic.
+
+GPT-P2. RESOURCES MARKED AS "OPTIONAL."
+  GPT says "Resources (optional FS-delimited)." But if the resources section
+  is optional (i.e., the FS markers may be absent), then the parser cannot
+  use a fixed section-counting strategy. It would need to peek at section
+  headers to determine which section it's in. This adds parser complexity.
+  All three FS markers should ALWAYS be present, even if the resources
+  section is empty (zero-length). This is how Phase I already works: the
+  two FS markers between Meta and Text are always present even though the
+  Styles section is empty.
+  RECOMMENDATION: Resources section is always present (may be empty). The FS
+  markers are structural, not optional.
+
+GPT-P3. TOO MANY UNRESOLVED DECISIONS.
+  The "Open decisions to resolve" section lists 8 items that are still open,
+  several of which the stakeholder has already answered:
+    - "Missing-resource handling" -- Stakeholder said client's choice, image
+      defs include width/height.
+    - "Plain-text exposure" -- Stakeholder confirmed strip-control-bytes
+      approach with decompression.
+    - "Backward compatibility" -- Stakeholder confirmed version byte gating.
+  These should be moved to "resolved" status.
+  RECOMMENDATION: Re-read the stakeholder answers and close out the decisions
+  that have been answered.
+
+GPT-P4. TIER SIGNALING IS STILL VAGUE.
+  "Sub-table tier bits define record size uniformly per table" -- but how?
+  The plan mentions "GS header or length heuristics for base/extended/rare
+  (e.g., 6/12/18 bytes) needs formalization" without proposing a concrete
+  mechanism. The same GS-distance heuristic problem from Gemini's plan
+  applies here (see GEM-P3). If using tier bits in a sub-table header byte,
+  that should be stated explicitly.
+  RECOMMENDATION: Commit to an explicit tier indicator (2-bit field in the
+  sub-table header byte, before the first record).
+
+GPT-P5. LINK PAYLOAD ENCODING UNSPECIFIED.
+  GPT mentions "link start/end with type byte (URL/qweb-id/mailbox/action)"
+  but doesn't define the payload format for each type. How long is a QWeb
+  page ID? How is an action ID encoded? Without this, implementers can't
+  write a parser.
+  RECOMMENDATION: Define at least the fixed-size types:
+    URL: 1-byte length + UTF-8 string
+    QWeb page ID: TBD fixed size (8 bytes? 16 bytes? Needs definition)
+    Mailbox: 7 bytes (same as meta format, already defined)
+    Action: 1-byte action ID
+
+GPT-P6. "DC1 0x11: apply style; next byte = style index (context-dependent)."
+  What does "context-dependent" mean? If the parser is inside a container
+  definition, DC1 applies a container style? If inside text, it applies a
+  text style? This is ambiguous and error-prone. If the parser loses track
+  of context (e.g., due to a malformed byte), it will misinterpret every
+  subsequent DC1.
+  RECOMMENDATION: Use separate control codes for different style types:
+    0x11 DC1 = apply TEXT style
+    0x12 DC2 = apply CONTAINER style
+    0x13 DC3 = apply TABLE style
+  This is unambiguous regardless of parser state.
+
+GPT-P7. SUBJECT STYLING: "meta may hold subject-style index" vs "DC1 allowed
+  in subject stream when doc type=email" vs "style-id 0 as default."
+  Three approaches listed, none chosen. This needs a decision.
+  RECOMMENDATION: The cleanest approach is to keep the subject plain in meta
+  (for inbox listings, search indexing, push notifications) and allow a
+  styled subject in the text section marked with SOH (0x01). This separates
+  concerns: meta = machine-readable subject, text = human-rendered subject.
+
+GPT-P8. "Per-section compression" mentioned as an option but no encoding
+  proposed.
+  If per-section compression is desired, each section's 4-byte length prefix
+  needs to include a compression type indicator. But the current length prefix
+  is just a raw byte count. Adding a compression nibble changes the maximum
+  section size from 4GB to 256MB (28 bits for size + 4 bits for compression).
+  Is this acceptable? If not, a separate compression-type byte per section
+  is needed (5 bytes total overhead per section).
+  RECOMMENDATION: For Phase II, use whole-blob compression only. Reserve
+  per-section compression for a future version to avoid overcomplicating the
+  Phase II parser.
+
+--- CLARIFICATION REQUESTS ---
+
+GPT-Q1. "NAK 0x15: variable-length field (key, length, value)." This seems
+  like a generic TLV (type-length-value) escape, not a specific command.
+  How does this differ from the meta section's KLV format? When would this
+  appear in the text section? What keys are valid inside the text stream?
+  This feels like it's trying to be a general-purpose extension mechanism,
+  which could become a "anything goes" backdoor that undermines the format's
+  compactness.
+
+GPT-Q2. "Layering: layer table with on/off flags." Where is this layer table
+  stored? In the styles section? As its own GS-delimited sub-table? What is
+  the record format? How many layers are supported (1 byte = 256)?
+
+GPT-Q3. The plan mentions "default style indices" in meta. What are these?
+  An index into the text styles sub-table that serves as the document's
+  base style? How many default indices are there (one for text, one for
+  containers, one for background)?
+
+--- THINGS DONE WELL ---
+
+GPT-G1. "Default style set flag" is the best compression idea in any plan.
+  For simple emails, eliminating the entire styles section is a huge win.
+
+GPT-G2. The "text-start offset" in meta is clever. Even though decompression
+  is required, being able to jump directly to the text section without
+  parsing styles and resources is valuable for email previews.
+
+GPT-G3. Comprehensive component coverage. Nav bars, tables/lists, images,
+  iframes, modals are all addressed with concrete fields (orientation,
+  spacing, collapse breakpoint, active/hover refs). This is more detailed
+  than the other plans.
+
+GPT-G4. "Prefer references over repeats" is a good guiding principle that
+  should be stated explicitly in all plans.
+
+
+================================================================================
+AREAS WHERE THE MODELS DISAGREE (for stakeholder input if needed)
+================================================================================
+
+DISAGREE-1. SECTION ORDER
+  Gemini: Meta -> Styles -> Text -> Resources -> Logic
+  GPT:    Undecided (Meta -> Styles -> Resources -> Text -> Logic preferred)
+  Claude: Meta -> Styles -> Resources -> Text -> Logic
+  MY POSITION: Resources before Text is correct for single-pass parsing.
+  Gemini's "terminate stream early" argument is valid for bandwidth saving
+  but can be achieved with length-prefix skipping regardless of order.
+  STAKEHOLDER INPUT NEEDED? No -- this is a technical optimization question.
+  Single-pass parsing benefits are clear.
+
+DISAGREE-2. TIER SIGNALING MECHANISM
+  Gemini: Distance between GS markers (implicit, fragile)
+  GPT:    "GS header or length heuristics" (unresolved)
+  Claude: Explicit 2-bit tier field in sub-table header byte
+  MY POSITION: Explicit tier field is the only robust approach. Implicit
+  distance-based detection is fragile and prevents variable-length fields.
+  STAKEHOLDER INPUT NEEDED? Possibly. The stakeholder mentioned that "if
+  the number of bytes between the two group separators are 18 bytes, that
+  means the style is using all the styles." This suggests the stakeholder
+  was thinking of the distance-based approach. However, the stakeholder also
+  said these are "just drafts" and can change. I believe the explicit tier
+  field is strictly better and the stakeholder would accept it.
+
+DISAGREE-3. AI PROMPT CONTROL CODE
+  Gemini: SUB (0x1A)
+  GPT:    Not specified (reserved for future assignment)
+  Claude: SUB (0x1A) (revised from ESC 0x1B after reading Gemini's plan)
+  This is now aligned between Gemini and Claude. GPT should also commit.
+
+DISAGREE-4. TRANSPARENCY CODE RANGE
+  Gemini: 0x1110-0x1119 (mid-spectrum dark teal)
+  GPT:    "TBD -- e.g., 0x0000-0x0009 or high-end block"
+  Claude: Leaning 0x0000-0x0009 (near-black)
+  MY POSITION: Near-black (0x0000-0x0009) is best. The 10 sacrificed colors
+  are perceptually identical -- all are extremely dark, nearly black. Mid-
+  spectrum codes like 0x1110 sacrifice distinguishable colors.
+  STAKEHOLDER INPUT NEEDED? Yes, this affects visual fidelity. The stakeholder
+  should confirm which range to sacrifice.
+
+DISAGREE-5. RESOURCES SECTION: Always present or optional?
+  Gemini: Always present (implied by fixed section structure)
+  GPT:    "Optional"
+  Claude: Always present (may be empty, but FS markers always exist)
+  MY POSITION: Always present. Consistent structure simplifies parsing.
+  An empty resources section is just [FS] [0x00 0x00 0x00 0x00] (4-byte
+  zero length). Cost: 5 bytes. Benefit: parser simplicity.
+  STAKEHOLDER INPUT NEEDED? No -- this is a parser simplicity question.
+
+
+================================================================================
+END OF FEEDBACK
+================================================================================

@@ -1,0 +1,454 @@
+================================================================================
+  CBDF SPECIFICATION: STYLES SECTION
+  Document: 03-Styles-Section
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+The Styles section defines all visual formatting used in the document. It
+sits between the first FS (end of Meta) and the second FS (start of Text).
+It begins with a 4-byte LE length prefix.
+
+Structure (after the FS marker):
+  [Length: 4 bytes LE] [Layout byte] [Background style] GS [sub-tables...]
+
+The 4-byte length prefix counts the section content bytes only (everything
+after the length field itself). This is consistent with Document Structure
+spec Section 4A.
+
+The section is organized into sub-tables separated by GS (0x1D). Each sub-
+table defines a category of styles (text, container, border, etc.). Empty
+sub-tables are represented as GS immediately followed by the next GS or FS.
+
+If the meta section contains a "default style set" flag (value >= 1), the
+styles section may be empty or contain only delta overrides.
+
+
+2. LAYOUT BYTE (1 byte)
+================================================================================
+
+The first byte of the Styles section selects one of 256 predefined page
+layouts. Each layout defines the arrangement of top-level panels.
+
+  Bit layout:
+    Bits 0-3: Panel existence flags
+      Bit 0: Header panel exists (side-to-side, top of page)
+      Bit 1: Footer panel exists (side-to-side, bottom of page)
+      Bit 2: Left aside panel exists (top-to-bottom, left side)
+      Bit 3: Right aside panel exists (top-to-bottom, right side)
+    Bits 4-5: Column count in main area
+      00 = 1 column
+      01 = 2 columns
+      10 = 3 columns
+      11 = 4 columns
+    Bits 6-7: Row count in main area
+      00 = 1 row
+      01 = 2 rows
+      10 = 3 rows
+      11 = 4 rows
+
+  The Main panel is ALWAYS implied (never needs a flag).
+
+  Common layout reference table:
+
+    Hex  | Binary     | Panels            | Cols | Rows | Description
+    -----|------------|-------------------|------|------|-------------------
+    0x00 | 0000 0000  | Main              | 1    | 1    | Single content area
+    0x01 | 0000 0001  | Header+Main       | 1    | 1    | Header bar + body
+    0x03 | 0000 0011  | Hdr+Ftr+Main      | 1    | 1    | Header + footer
+    0x07 | 0000 0111  | Hdr+Ftr+Left+Main | 1    | 1    | With left sidebar
+    0x0F | 0000 1111  | All panels+Main   | 1    | 1    | Full layout
+    0x11 | 0001 0001  | Header+Main       | 2    | 1    | Header + 2 cols
+    0x1F | 0001 1111  | All panels+Main   | 2    | 1    | Full + 2 cols
+    0x2F | 0010 1111  | All panels+Main   | 3    | 1    | Full + 3 cols
+    0x3F | 0011 1111  | All panels+Main   | 4    | 1    | Full + 4 cols
+    0x4F | 0100 1111  | All panels+Main   | 1    | 2    | Full + 2 rows
+    0xFF | 1111 1111  | All panels+Main   | 4    | 4    | Maximum layout
+
+  Decoding example for 0x3F (0011 1111):
+    Bits 0-3 = 1111: Header(1) + Footer(1) + Left(1) + Right(1)
+    Bits 4-5 = 11:   4 columns
+    Bits 6-7 = 00:   1 row
+    Result: All panels, 4 columns, 1 row.
+
+
+3. SUB-TABLE HEADER BYTE
+================================================================================
+
+Each sub-table (after the layout byte and background style) begins with a
+1-byte header:
+
+  Bits 0-1: Tier (record size indicator)
+    00 = Base tier only (smallest records)
+    01 = Base + Extended tier
+    10 = Base + Extended + Rare tier
+    11 = Reserved
+  Bits 2-7: Count (0-63 records in this sub-table)
+
+This is ONE byte, appearing ONCE per sub-table. ALL records in that sub-
+table use the SAME tier size. The parser reads the header, knows the record
+size and count, and parses all records sequentially.
+
+Not all sub-tables use tiering. Sub-tables with fixed-size records (shadow,
+composite, nav bar) only use the count field (bits 2-7) with tier bits = 00.
+
+
+4. SUB-TABLE ORDER
+================================================================================
+
+Sub-tables appear in this fixed order, separated by GS (0x1D):
+
+  Position | Sub-table                     | Tiered? | Ref Name
+  ---------|-------------------------------|---------|----------
+  1        | Container Background Styles   | Yes     | BG
+  2        | Container Border Styles       | No      | BORDER
+  3        | Container Spacing Styles      | No      | SPACING
+  4        | Container Shadow Styles       | No      | SHADOW
+  5        | Container Composite Styles    | No      | COMPOSITE
+  6        | Text Styles                   | Yes     | TEXT
+  7        | Font Effects                  | No      | EFFECT
+  8        | Nav Bar Styles                | No      | NAV
+  9        | Table Styles                  | No      | TABLE
+  10       | Image Definitions             | No      | IMAGE
+  11       | Frame/iFrame Definitions      | No      | FRAME
+  12       | Reserved (Form Styles)        | -       | (Phase III)
+
+  Empty sub-table: [GS] immediately (header byte with count=0, or just GS).
+
+  The page-level background style appears BEFORE the first GS and after the
+  layout byte. It is a single record (not a sub-table) using the Container
+  Background Style format.
+
+
+5. PAGE-LEVEL BACKGROUND STYLE
+================================================================================
+
+Immediately after the layout byte, before the first GS, sits a single
+background style record for the entire page (Layer 0). This uses the
+Container Background Style format (see Section 6A).
+
+If the first byte after the layout byte is GS, the page has no background
+style (transparent/default).
+
+
+6. STYLE RECORD FORMATS
+================================================================================
+
+6A. CONTAINER BACKGROUND STYLE
+---------------------------------
+
+  All tiers are FIXED SIZE to maintain sub-table indexability. Gradient
+  color stops have a fixed count per tier (0, 2, or 4 stops).
+
+  Base tier (6 bytes) -- no gradient:
+    Byte 0-1: Background color (R5G6B5 or transparency code)
+    Byte 2-3: Background image ID (0=none; references built-in image table)
+    Byte 4:   Color opacity (0-255 maps to 0-100%)
+              Controls how much the BG color covers the BG image.
+              255 = fully opaque (image hidden), 0 = fully transparent (image
+              shows through), values between = tint effect.
+    Byte 5:   Image flags bitfield:
+                Bit 0: Repeat X
+                Bit 1: Repeat Y
+                Bit 2: Fixed (no scroll)
+                Bit 3: Cover (scale to fill)
+                Bit 4: Contain (scale to fit)
+                Bit 5-7: Reserved
+
+  Extended tier (12 bytes) -- 2 gradient stops:
+    Byte 0-5: Same as base tier.
+    Byte 6:   Gradient type (4 bits) + Gradient angle (4 bits)
+              Gradient types: 0=none, 1=linear, 2=radial, 3=conic
+              Angle: 0-15 maps to 0-337.5 degrees (22.5 degree steps)
+    Byte 7:   Reserved (must be 0)
+    Byte 8-9: Gradient color stop 1 (R5G6B5)
+    Byte 10-11: Gradient color stop 2 (R5G6B5)
+              For a 2-color gradient: stop 1 = start color, stop 2 = end.
+              The background color (byte 0-1) is NOT part of the gradient.
+
+  Rare tier (20 bytes) -- 4 gradient stops + animation:
+    Byte 0-11: Same as extended tier.
+    Byte 12-13: Gradient color stop 3 (R5G6B5)
+    Byte 14-15: Gradient color stop 4 (R5G6B5)
+              For a 4-stop gradient, stops are evenly spaced.
+              Unused stops should be set to 0x0000.
+    Byte 16:  Animation type (4 bits) + Animation speed (4 bits)
+              Types: 0=none, 1=scroll, 2=pulse, 3=fade, 4=parallax
+              Speed: 0=paused, 1=slow, 15=fast
+    Byte 17:  Event flags (8 bits)
+              Bit 0: On hover change style
+              Bit 1: On click change style
+              Bit 2-7: Reserved
+    Byte 18:  Hover style ID (1 byte, references another BG style)
+    Byte 19:  User-settable flag (1 bit) + Reserved (7 bits)
+              Bit 0: User's browser may override this style
+
+  GRADIENT STOP LIMITS: Base tier = 0 stops, Extended = 2, Rare = 4.
+  If a design needs more than 4 gradient stops, use overlapping containers
+  with different gradient backgrounds or wait for Phase III which may add
+  a custom gradient sub-table.
+
+
+6B. CONTAINER BORDER STYLE (9 bytes, fixed)
+----------------------------------------------
+
+    Byte 0-1: Border color (R5G6B5)
+    Byte 2-3: Outside-of-border color (R5G6B5 or transparency)
+    Byte 4-5: Border thickness per side
+              Bits 0-3:   Top (0-15 px)
+              Bits 4-7:   Right (0-15 px)
+              Bits 8-11:  Bottom (0-15 px)
+              Bits 12-15: Left (0-15 px)
+    Byte 6-8: Corner radius (6 bits each, 0-50%)
+              Bits 0-5:   Upper-left
+              Bits 6-11:  Upper-right
+              Bits 12-17: Lower-right
+              Bits 18-23: Lower-left
+
+
+6C. CONTAINER SPACING STYLE (4 bytes, fixed)
+-----------------------------------------------
+
+  All values are percentages of the parent container.
+
+    Byte 0-1: Margin per side
+              Bits 0-3:   Top (0-15%)
+              Bits 4-7:   Right (0-15%)
+              Bits 8-11:  Bottom (0-15%)
+              Bits 12-15: Left (0-15%)
+    Byte 2-3: Padding per side
+              Bits 0-3:   Top (0-15%)
+              Bits 4-7:   Right (0-15%)
+              Bits 8-11:  Bottom (0-15%)
+              Bits 12-15: Left (0-15%)
+
+  The "Egg" (content area) size = container - margin - border - padding.
+  If top margin = 0, it inherits the left margin value.
+  If bottom margin = 0, it inherits the left margin value.
+
+
+6D. CONTAINER SHADOW STYLE (4 bytes, fixed)
+----------------------------------------------
+
+    Byte 0-1: Shadow color (R5G6B5)
+    Byte 2-3: Shadow geometry
+              Bits 0-5:   X offset (-32 to +31 px, signed 6-bit)
+              Bits 6-11:  Y offset (-32 to +31 px, signed 6-bit)
+              Bits 12-15: Blur/diffusion (0-15 px)
+
+
+6E. CONTAINER COMPOSITE STYLE (5 bytes, fixed)
+-------------------------------------------------
+
+  Cross-references into the other container sub-tables:
+
+    Byte 0: Background style ID (index into BG sub-table)
+    Byte 1: Border style ID (index into BORDER sub-table)
+    Byte 2: Spacing style ID (index into SPACING sub-table)
+    Byte 3: Shadow style ID (index into SHADOW sub-table)
+    Byte 4: Overflow + Layer ID
+            Bits 0-1: Overflow (0=visible, 1=hidden, 2=scroll, 3=auto)
+            Bits 2-7: Layer ID (0-63; 0=background layer)
+
+  This design allows sharing: multiple panels can reference the same
+  border style, same spacing, etc. without duplication.
+
+
+6F. TEXT STYLE
+---------------------------------
+
+  Base tier (8 bytes):
+    Byte 0-1: Font ID
+              Bits 0-11:  Font family index (0-4095)
+              Bits 12-15: Sub-variant hints
+                Bit 12: Condensed
+                Bit 13: Extended
+                Bit 14: Monospace variant
+                Bit 15: Reserved
+    Byte 2:   Font size (1-255 points; 0 = inherit/default)
+    Byte 3:   Flags bitfield
+              Bit 0: Bold
+              Bit 1: Italic
+              Bit 2: Underline
+              Bit 3: Strikethrough
+              Bit 4: Subscript
+              Bit 5: Superscript
+              Bits 6-7: Text alignment (0=left, 1=center, 2=right, 3=justify)
+    Byte 4-5: Text foreground color (R5G6B5 or transparency code)
+    Byte 6-7: Text background color (R5G6B5 or transparency code)
+
+  Extended tier adds 4 bytes (total 12):
+    Byte 8-9:  Text shadow
+              Bits 0-5:   X offset (-32 to +31, signed 6-bit)
+              Bits 6-11:  Y offset (-32 to +31, signed 6-bit)
+              Bits 12-15: Blur (0-15 px)
+    Byte 10:  Letter spacing (signed int8, -128 to +127, in 0.1em units)
+    Byte 11:  Line height (0=auto; 1-255 = value/10, so 0.1 to 25.5)
+
+  Rare tier adds 4 bytes (total 16):
+    Byte 12:  Font effect + intensity
+              Bits 0-3: Effect ID (0-15, see Font Effects spec)
+              Bits 4-7: Effect intensity (0-15)
+    Byte 13:  Text transform + direction + word spacing
+              Bits 0-1: Transform (0=none, 1=uppercase, 2=lowercase, 3=capitalize)
+              Bits 2-3: Direction (0=LTR, 1=RTL, 2=TTB, 3=BTT)
+              Bits 4-7: Word spacing (0-15, in 0.1em units)
+    Byte 14-15: Effect color (R5G6B5, used by glow/shadow/gradient effects)
+
+
+6G. FONT EFFECT (4 bytes, fixed)
+-----------------------------------
+
+  For effects that need more parameters than the 4+4 bits in the text
+  style rare tier. Referenced by effect ID 15 ("Custom") in the text style.
+
+    Byte 0:   Effect type (same IDs as text style effect, 0-15)
+    Byte 1:   Parameter A (effect-specific; e.g., blur radius, density)
+    Byte 2:   Parameter B (effect-specific; e.g., animation speed, angle)
+    Byte 3:   Animation flags
+              Bits 0-3: Speed (0=paused, 1=slow, 15=fast)
+              Bits 4-5: Loop mode (0=loop, 1=bounce, 2=once, 3=random)
+              Bits 6-7: Reserved
+
+  Standard effects (0-14) use default parameters from the client's
+  rendering engine. Effect 15 ("Custom") references this sub-table for
+  full parameterization.
+
+
+6H. NAV BAR STYLE (12 bytes, fixed)
+--------------------------------------
+
+    Byte 0:   Orientation + item count
+              Bit 0: Orientation (0=horizontal, 1=vertical)
+              Bits 1-7: Max item count hint (0-127, 0=no limit)
+    Byte 1-2: Background color (R5G6B5)
+    Byte 3-4: Item background color (R5G6B5)
+    Byte 5-6: Item hover color (R5G6B5)
+    Byte 7:   Item text style ID (index into TEXT sub-table)
+    Byte 8:   Divider + spacing
+              Bits 0-1: Divider style (0=none, 1=line, 2=dot, 3=space)
+              Bits 2-7: Item spacing (0-63 px)
+    Byte 9:   Active item text style ID (for "current page" indicator)
+    Byte 10:  Collapse breakpoint (0=never; 1-255 = viewport width / 4,
+              so 4-1020px in 4px steps. E.g., 192 = 768px breakpoint)
+    Byte 11:  Icon/text mode + reserved
+              Bits 0-1: Mode (0=text only, 1=icon only, 2=icon+text, 3=auto)
+              Bits 2-7: Reserved
+
+
+6I. TABLE STYLE (6 bytes, fixed)
+-----------------------------------
+
+    Byte 0:   Table flags
+              Bit 0: Border collapse (0=separate, 1=collapse)
+              Bit 1: Header row exists
+              Bit 2: Stripe odd rows
+              Bits 3-4: Width mode (0=auto, 1=fixed, 2=percentage)
+              Bits 5-7: Reserved
+    Byte 1:   Border spacing (0-255 px, if not collapsed)
+    Byte 2-3: Stripe color (R5G6B5; alternating row color if bit 2 set)
+    Byte 4:   Header row text style ID
+    Byte 5:   Body cell text style ID
+
+
+6J. IMAGE DEFINITION (8 bytes, fixed)
+----------------------------------------
+
+  Defines how an image is displayed. Does NOT contain image data (that's in
+  the Resources section). References a resource by its 1-byte Resource ID.
+
+    Byte 0:   Image source type
+              0 = Resource (binary data in Resources section)
+              1 = Built-in image (from client's image lookup table)
+              2 = AI-generated (references a SUB prompt in text section)
+    Byte 1:   Resource ID (for type 0) or Built-in image ID (for type 1)
+              or 0 (for type 2, AI-generated)
+    Byte 2-3: Width (16 bits, in pixels; 0=auto)
+    Byte 4-5: Height (16 bits, in pixels; 0=auto)
+    Byte 6:   Fit mode + alignment
+              Bits 0-2: Fit (0=none, 1=contain, 2=cover, 3=fill, 4=scale-down)
+              Bits 3-4: Horizontal align (0=left, 1=center, 2=right)
+              Bits 5-6: Vertical align (0=top, 1=middle, 2=bottom)
+              Bit 7: Reserved
+    Byte 7:   Border style ID (index into BORDER sub-table; 0=no border)
+
+  When the Resources section is skipped (abortable download), the renderer
+  uses Width and Height to display a placeholder box. Client decides whether
+  to show the placeholder or reflow text around the missing image.
+
+
+6K. FRAME/IFRAME DEFINITION (8 bytes, fixed)
+-----------------------------------------------
+
+    Byte 0:   Source type
+              0 = External URL (URL stored as link in text section)
+              1 = Inline CBDF sub-document (resource in Resources section)
+    Byte 1:   Resource ID (for type 1) or 0 (URL provided inline)
+    Byte 2-3: Width (16 bits, in pixels)
+    Byte 4-5: Height (16 bits, in pixels)
+    Byte 6:   Border style ID (index into BORDER sub-table)
+    Byte 7:   Sandbox flags
+              Bit 0: Allow scripts
+              Bit 1: Allow links/navigation
+              Bit 2: Allow forms
+              Bit 3: Allow popups
+              Bits 4-7: Reserved
+
+
+7. COMPLETE STYLES SECTION LAYOUT
+================================================================================
+
+  [Length: 4 bytes LE]
+  [Layout byte: 1 byte]
+  [Page background: BG record (variable if extended/rare tier)]
+  GS [Header: 1B] RS [BG record 0] RS [BG record 1] ...        -- BG styles
+  GS [Header: 1B] RS [Border 0] RS [Border 1] ...               -- Border styles
+  GS [Header: 1B] RS [Spacing 0] RS [Spacing 1] ...             -- Spacing styles
+  GS [Header: 1B] RS [Shadow 0] RS [Shadow 1] ...               -- Shadow styles
+  GS [Header: 1B] RS [Composite 0] RS [Composite 1] ...         -- Composite styles
+  GS [Header: 1B] RS [Text 0] RS [Text 1] ...                   -- Text styles
+  GS [Header: 1B] RS [Effect 0] RS [Effect 1] ...               -- Font effects
+  GS [Header: 1B] RS [Nav 0] RS [Nav 1] ...                     -- Nav bar styles
+  GS [Header: 1B] RS [Table 0] RS [Table 1] ...                 -- Table styles
+  GS [Header: 1B] RS [Image 0] RS [Image 1] ...                 -- Image defs
+  GS [Header: 1B] RS [Frame 0] RS [Frame 1] ...                 -- Frame defs
+  GS                                                             -- Reserved (forms)
+
+  Minimum styles section (no styles, just structure):
+    [0x00 0x00 0x00 0x02] [0x00] [GS][GS][GS][GS][GS][GS][GS][GS][GS][GS][GS][GS]
+    (4-byte length=2, layout byte=0x00 (main only, no bg), 12 empty GS markers)
+
+  When "default style set" flag is active in meta, the section may contain
+  only the layout byte and GS markers, with zero records in all sub-tables.
+
+
+8. RECORD SIZE SUMMARY
+================================================================================
+
+All style record types have FIXED sizes within each tier. There are no
+variable-length records. This guarantees that the parser can index into any
+sub-table by offset: record_offset = header_size + (index * record_size).
+
+  Style Type            | Base  | Extended | Rare
+  ----------------------|-------|----------|------
+  Container Background  | 6 B   | 12 B     | 20 B
+  Container Border      | 9 B   | -        | -
+  Container Spacing     | 4 B   | -        | -
+  Container Shadow      | 4 B   | -        | -
+  Container Composite   | 5 B   | -        | -
+  Text Style            | 8 B   | 12 B     | 16 B
+  Font Effect           | 4 B   | -        | -
+  Nav Bar               | 12 B  | -        | -
+  Table                 | 6 B   | -        | -
+  Image Definition      | 8 B   | -        | -
+  Frame Definition      | 8 B   | -        | -
+
+  "-" means that style type does not use tiering (only one fixed size).
+
+
+================================================================================
+END OF SPECIFICATION
+================================================================================

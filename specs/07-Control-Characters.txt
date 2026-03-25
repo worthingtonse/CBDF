@@ -1,0 +1,547 @@
+================================================================================
+  CBDF SPECIFICATION: CONTROL CHARACTER ASSIGNMENT TABLE
+  Document: 07-Control-Characters
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+The 32 ASCII control characters (0x00-0x1F) serve as the command vocabulary
+of the CBDF format. They appear in two contexts:
+
+  A. STRUCTURAL: Separating major sections and sub-sections of the document.
+     These appear at the document level (between sections) and within the
+     Styles section (between sub-tables).
+
+  B. INLINE: Appearing within the Text section to switch styles, insert
+     elements, and mark semantic boundaries. These are interspersed with
+     printable UTF-8 text.
+
+PLAIN-TEXT EXTRACTION RULE: A plain-text reader strips ALL bytes 0x00-0x1F
+from the text section EXCEPT:
+  - 0x09 (HT) = Horizontal Tab
+  - 0x0A (LF) = Line Feed
+  - 0x0D (CR) = Carriage Return
+The remaining printable UTF-8 bytes are the readable text.
+
+
+2. MASTER ASSIGNMENT TABLE
+================================================================================
+
+| Hex  | Dec | Symbol | Command               | Context    | Payload                          | Phase |
+|------|-----|--------|-----------------------|------------|----------------------------------|-------|
+| 0x00 | 0   | NUL    | No Operation / Padding| Both       | None                             | II    |
+| 0x01 | 1   | SOH    | Start of Heading      | Text       | None                             | II    |
+| 0x02 | 2   | STX    | Start of Text         | Text       | None                             | II    |
+| 0x03 | 3   | ETX    | End of Text           | Text       | None                             | II    |
+| 0x04 | 4   | EOT    | End of Transmission   | Structural | None                             | II    |
+| 0x05 | 5   | ENQ    | Reserved              | -          | -                                | III   |
+| 0x06 | 6   | ACK    | Reserved              | -          | -                                | III   |
+| 0x07 | 7   | BEL    | Reserved (Alert)      | -          | -                                | III   |
+| 0x08 | 8   | BS     | Reserved (Backspace)  | -          | -                                | III   |
+| 0x09 | 9   | HT     | Horizontal Tab        | Text       | None                             | II    |
+| 0x0A | 10  | LF     | Line Feed             | Text       | None                             | II    |
+| 0x0B | 11  | VT     | Paragraph Break       | Text       | None                             | II    |
+| 0x0C | 12  | FF     | Page Break            | Text       | None                             | II    |
+| 0x0D | 13  | CR     | Carriage Return       | Text       | None                             | II    |
+| 0x0E | 14  | SO     | Link Start            | Text       | [Type:1][Len:1][Target:N]        | II    |
+| 0x0F | 15  | SI     | Link End              | Text       | None                             | II    |
+| 0x10 | 16  | DLE    | Data Escape           | Text       | [Len:2 LE][Raw data:N]           | II    |
+| 0x11 | 17  | DC1    | Apply Text Style      | Text       | [Index:1]                        | II    |
+| 0x12 | 18  | DC2    | Apply Container Style | Text       | [Index:1]                        | II    |
+| 0x13 | 19  | DC3    | Apply Table Style     | Text       | [Index:1]                        | II    |
+| 0x14 | 20  | DC4    | End Style / Pop       | Text       | None                             | II    |
+| 0x15 | 21  | NAK    | Element ID            | Text       | [ID:1]                           | II    |
+| 0x16 | 22  | SYN    | Insert Image          | Text       | [ResourceID:1]                   | II    |
+| 0x17 | 23  | ETB    | End of Block          | Text       | None                             | II    |
+| 0x18 | 24  | CAN    | Reserved (Hide/Show)  | -          | -                                | III   |
+| 0x19 | 25  | EM     | Start Item Block      | Text       | [Type:1][StyleIndex:1]           | II    |
+| 0x1A | 26  | SUB    | AI Prompt             | Text       | [Type:1][Len:2 LE][UTF-8:N]     | II    |
+| 0x1B | 27  | ESC    | Escape (Extended Cmd) | Both       | [Code:1][Payload:variable]       | III   |
+| 0x1C | 28  | FS     | File Separator        | Structural | None                             | II    |
+| 0x1D | 29  | GS     | Group Separator       | Structural | None                             | II    |
+| 0x1E | 30  | RS     | Record Separator      | Structural | None                             | II    |
+| 0x1F | 31  | US     | Unit Separator        | Text       | None                             | II    |
+
+
+3. DETAILED COMMAND SPECIFICATIONS
+================================================================================
+
+--- 0x00 NUL: No Operation / Padding ---
+
+  Purpose: Ignored by the parser. Used for byte alignment in style records
+  or as filler in fixed-size fields.
+  Payload: None.
+  Context: May appear anywhere. Always ignored.
+
+
+--- 0x01 SOH: Start of Heading (Styled Subject) ---
+
+  Purpose: Marks the beginning of the styled subject text within the Text
+  section. Only meaningful when the document type is "email" (set in meta).
+  The subject text between SOH and the next ETX is the styled version of the
+  email subject. The plain subject in the meta section is used for inbox
+  listings; the styled subject is rendered when the email is opened.
+
+  Payload: None. Styled text follows until the next DC4 (0x14) or ETB (0x17).
+  Context: Text section only. Must appear INSIDE the STX/ETX block (after
+  STX, before other body content). This keeps the parser in a single mode --
+  it does not need to handle styled content before STX.
+  Usage:
+    [STX] [SOH] [DC1 style_index] Subject text here [DC4] Body text... [ETX]
+
+  Plain-text extraction: SOH is stripped. The subject text remains as part
+  of the plain text output.
+
+
+--- 0x02 STX: Start of Text ---
+
+  Purpose: Marks the beginning of the document body text. Mandatory in every
+  document that has a Text section.
+  Payload: None.
+  Context: Text section. Appears once.
+
+
+--- 0x03 ETX: End of Text ---
+
+  Purpose: Marks the end of the document body text. Since each section has
+  a 4-byte length prefix, ETX is technically redundant -- the length prefix
+  is authoritative for determining section boundaries. ETX serves as a
+  VALIDATION CHECK: the parser can verify that ETX appears at the position
+  indicated by the length prefix. If it doesn't, the document may be corrupt.
+  Encoders SHOULD emit ETX. Parsers SHOULD use the length prefix as the
+  primary boundary and MAY validate ETX if present.
+  Payload: None.
+  Context: Text section.
+
+
+--- 0x04 EOT: End of Transmission ---
+
+  Purpose: Explicit end-of-file marker. Optional -- the parser may also use
+  the section length prefix or actual EOF to determine the end.
+  Payload: None.
+  Context: After the last section.
+
+
+--- 0x05 ENQ: Reserved (Phase III) ---
+
+  Possible future use: Interactive resource request from server.
+  NOT functional in Phase II.
+
+
+--- 0x06 ACK: Reserved (Phase III) ---
+
+  Possible future use: Interactive acknowledgment / form response.
+  NOT functional in Phase II.
+
+
+--- 0x07 BEL: Reserved (Phase III) ---
+
+  Possible future use: Client-side alert or notification sound.
+  NOT functional in Phase II.
+
+
+--- 0x08 BS: Reserved (Phase III) ---
+
+  Possible future use: Backspace for typing/animation effects in Logic.
+  NOT functional in Phase II.
+
+
+--- 0x09 HT: Horizontal Tab ---
+
+  Purpose: Standard tab character. PRESERVED in plain-text extraction.
+  Payload: None.
+  Context: Text section.
+
+
+--- 0x0A LF: Line Feed ---
+
+  Purpose: Standard Unix line break. PRESERVED in plain-text extraction.
+  Payload: None.
+  Context: Text section.
+
+
+--- 0x0B VT: Paragraph Break ---
+
+  Purpose: Marks a semantic paragraph boundary. Renderers should insert
+  vertical spacing (larger than a line break). Unlike LF which is a simple
+  line break, VT signals a new paragraph with associated spacing.
+  Payload: None.
+  Context: Text section.
+  Plain-text extraction: Stripped (replaced by double LF by convention).
+
+
+--- 0x0C FF: Page Break ---
+
+  Purpose: Starts a new rendering page or screen. Used in multi-page
+  documents or long-form content.
+  Payload: None.
+  Context: Text section.
+
+
+--- 0x0D CR: Carriage Return ---
+
+  Purpose: Standard Windows line break component. PRESERVED in plain-text
+  extraction. Typically paired with LF (CR+LF).
+  Payload: None.
+  Context: Text section.
+
+
+--- 0x0E SO: Link Start ---
+
+  Purpose: Marks the beginning of a hyperlink. The text between SO and SI
+  (0x0F) is the visible link text.
+
+  Payload: [Type: 1 byte] [Length: 1 byte] [Target: N bytes]
+
+  Link types:
+    0 = URL (UTF-8 string, Length = byte count of URL)
+    1 = QWeb Page ID (fixed-size identifier, Length = size of ID)
+    2 = Mailbox Address (7 bytes: coin_group(2) + denom(1) + SN(4))
+    3 = Action/Script trigger (1 byte action ID, for Logic section)
+    4-255 = Reserved for future types
+
+  Context: Text section.
+  Usage:
+    [SO] [0x00] [0x16] [https://example.com] Click here [SI]
+    (Type=URL, Length=22, Target="https://example.com", Text="Click here")
+
+
+--- 0x0F SI: Link End ---
+
+  Purpose: Marks the end of a hyperlink started by SO (0x0E).
+  Payload: None.
+  Context: Text section. Must be preceded by a matching SO.
+
+
+--- 0x10 DLE: Data Escape ---
+
+  Purpose: Bypasses control character interpretation for a block of raw
+  binary data. Used when binary content must appear inline in the text
+  section (e.g., inline SVG data, binary tokens).
+
+  Payload: [Length: 2 bytes LE] [Raw data: N bytes]
+  The parser reads Length bytes without interpreting any control characters
+  within the raw data block.
+
+  Context: Text section.
+  Note: For Phase II, this is primarily a safety mechanism. Most binary
+  data should be in the Resources section.
+
+
+--- 0x11 DC1: Apply Text Style ---
+
+  Purpose: Switches the current text formatting to the specified style from
+  the Text Styles sub-table in the Styles section.
+
+  Payload: [Index: 1 byte] (0-255, index into Text Styles sub-table)
+  The style remains active until another DC1, a DC4 (pop), or ETX.
+
+  Context: Text section.
+  Usage:
+    Normal text [DC1 0x02] Bold red text [DC1 0x00] Back to default
+    Normal text [DC1 0x02] Bold red text [DC4] Back to previous style
+
+
+--- 0x12 DC2: Apply Container Style ---
+
+  Purpose: Starts a new container (panel, div-equivalent) with the specified
+  composite style from the Container Composite Styles sub-table.
+
+  Payload: [Index: 1 byte] (0-255, index into Container Composite sub-table)
+  The container holds all content until a matching ETB (0x17) or DC4 (0x14).
+
+  Context: Text section.
+  Usage:
+    [DC2 0x01] Content inside container styled with composite style #1 [ETB]
+
+
+--- 0x13 DC3: Apply Table Style ---
+
+  Purpose: Starts a table with the specified style from the Table Styles
+  sub-table. Table cells are separated by US (0x1F). Table rows are
+  separated by RS (0x1E) within the text section (note: RS has dual use --
+  in Styles section it separates style records; in Text section within a
+  table context it separates rows).
+
+  Payload: [Index: 1 byte] (0-255, index into Table Styles sub-table)
+  The table continues until ETB (0x17).
+
+  Context: Text section.
+  Usage:
+    [DC3 0x00] Cell1 [US] Cell2 [US] Cell3 [RS] Cell4 [US] Cell5 [US] Cell6 [ETB]
+    (Table style #0, 2 rows x 3 columns)
+
+  DESIGN NOTE: Gemini proposed DC3 for "Apply Layer Style" instead of table
+  style. Layer targeting is handled as a PROPERTY of the container style
+  record (the composite style includes a layer ID field) rather than a
+  separate inline command. This keeps layer management in the styles section
+  where it belongs and frees DC3 for the more commonly needed table command.
+
+
+--- 0x14 DC4: End Style / Pop ---
+
+  Purpose: Reverts to the previous style on the style stack. Each DC1, DC2,
+  or DC3 pushes a style; DC4 pops back to what was active before.
+
+  Payload: None.
+  Context: Text section.
+  Usage:
+    [DC1 0x00] Default text [DC1 0x03] Highlighted text [DC4] Default again
+
+
+--- 0x15 NAK: Element ID ---
+
+  Purpose: Assigns a stable, unique ID to the NEXT element in the text
+  stream. The Logic section uses these IDs for CRUD operations (create,
+  read, update, delete content programmatically).
+
+  Payload: [ID: 1 byte] (0-254; 0xFF is reserved as escape to 2-byte ID)
+  If ID = 0xFF: [0xFF] [Extended ID: 2 bytes LE] (for documents needing
+  more than 254 addressable elements).
+
+  Context: Text section. Appears immediately before the element it labels.
+  IDs MUST be unique within a document and MUST remain stable across
+  re-serialization.
+
+  Usage:
+    [NAK 0x01] [DC2 0x05] This container has ID=1 [ETB]
+    [NAK 0x02] [DC1 0x03] This text span has ID=2 [DC4]
+
+
+--- 0x16 SYN: Insert Image ---
+
+  Purpose: Inserts an image at the current position in the text flow. The
+  image is identified by its Resource ID (from the Resources section) or
+  by an image definition index (from the Image Definitions sub-table in
+  the Styles section).
+
+  Payload: [Resource ID: 1 byte]
+  The Resource ID matches a resource in the Resources section. If the
+  resource is not available (section skipped or resource stripped), the
+  renderer uses the width/height from the image definition in the Styles
+  section to show a placeholder or reflow text.
+
+  Context: Text section.
+
+
+--- 0x17 ETB: End of Block ---
+
+  Purpose: Closes the current block-level element (container, table, nav
+  bar, or item block). Pairs with DC2, DC3, or EM.
+
+  Payload: None.
+  Context: Text section.
+
+
+--- 0x18 CAN: Reserved (Phase III) ---
+
+  Possible future use: "Initially Hidden" -- element is parsed but not
+  rendered until the Logic section or user action reveals it. Useful for
+  modals (defined in text but hidden by default).
+  NOT functional in Phase II.
+
+
+--- 0x19 EM: Start Item Block ---
+
+  Purpose: Begins a structured item block (list, nav bar, or other
+  repeating-item element). Items within the block are separated by
+  US (0x1F). The block ends with ETB (0x17).
+
+  Payload: [Type: 1 byte] [Style Index: 1 byte]
+
+  Item block types:
+    0 = Unordered list (bullets)
+    1 = Ordered list (numbered)
+    2 = Nav bar (horizontal/vertical navigation)
+    3 = Definition list (term/definition pairs, separated by US)
+    4-255 = Reserved for future item block types
+
+  Style Index references the appropriate sub-table:
+    Types 0-1: List Styles sub-table (not yet defined, use default)
+    Type 2: Nav Bar Styles sub-table
+    Type 3: List Styles sub-table
+
+  Context: Text section.
+  Usage (nav bar):
+    [EM 0x02 0x00] [SO ...] Home [SI] [US] [SO ...] About [SI] [US] [SO ...] Contact [SI] [ETB]
+    (Nav bar, style #0, three items separated by US)
+
+  Usage (unordered list):
+    [EM 0x00 0x00] First item [US] Second item [US] Third item [ETB]
+
+
+--- 0x1A SUB: AI Prompt ---
+
+  Purpose: Embeds an AI prompt that the RECEIVER's client evaluates to
+  generate a style, image, or layout modification. This reduces document
+  size by replacing complex style definitions with natural language.
+
+  Payload: [Type: 1 byte] [Length: 2 bytes LE] [UTF-8 prompt text: N bytes]
+
+  AI prompt types:
+    0 = Style prompt (AI generates a visual style)
+    1 = Image prompt (AI generates an image)
+    2 = Layout prompt (AI modifies the page layout)
+    3-255 = Reserved
+
+  If the client has no AI capability, it applies the user's configured
+  default style/behavior (stored in client settings, customizable).
+
+  Context: Text section.
+  Usage:
+    [SUB 0x00 0x2C 0x00] Create a cloud-like style with blue sky and
+    fluffy whiteness [DC1 0x00] Fallback text continues here...
+
+  Maximum prompt length: 65535 bytes (2-byte LE length field).
+
+
+--- 0x1B ESC: Escape / Extended Commands (Phase III) ---
+
+  Purpose: Reserved for future extended command sequences that go beyond
+  the 32 control characters. When the 32 primary codes are insufficient,
+  ESC introduces a secondary command byte, effectively giving 256 additional
+  commands.
+
+  Payload: [Command Code: 1 byte] [Payload: variable per command]
+  No ESC commands are defined in Phase II. The parser should skip ESC +
+  the next byte (and any associated payload, if a length is provided).
+
+  Context: Both structural and text.
+
+
+--- 0x1C FS: File Separator ---
+
+  Purpose: Separates the major sections of a CBDF document.
+  Document structure: [Meta] FS [Styles] FS [Text] FS [Resources] FS [Logic]
+  (Text before Resources enables abortable downloads -- clients can stop
+  after receiving text without downloading images.)
+
+  Payload: None.
+  Context: Structural (document level).
+  Always present even if a section is empty (zero-length section = FS
+  immediately followed by the section length prefix of 0x00000000).
+
+  Exception: If the meta section contains an EOF flag, NO FS markers follow.
+
+
+--- 0x1D GS: Group Separator ---
+
+  Purpose: Separates style sub-tables within the Styles section.
+  Each GS marks the boundary between different style categories
+  (background, border, text, nav bar, etc.).
+
+  Payload: None.
+  Context: Structural (Styles section).
+  Empty sub-tables: GS immediately followed by the next GS (or FS).
+
+
+--- 0x1E RS: Record Separator ---
+
+  Purpose: Separates individual records within a style sub-table.
+  Also used within the Text section to separate TABLE ROWS when inside
+  a DC3 table context.
+
+  Payload: None.
+  Context: Structural (Styles section) and Text section (within tables).
+
+  DUAL-USE SAFETY NOTE: There is no ambiguity because the contexts are
+  non-overlapping. RS only appears in two places:
+    a) Styles section: Between style records within a GS-delimited sub-table.
+       The parser is in "styles mode" and knows RS means record boundary.
+    b) Text section: ONLY inside a DC3 table block. The parser tracks its
+       nesting state (it entered a table via DC3) and knows RS means row
+       separator. RS never appears in free-flowing body text.
+  A parser that tracks its context (styles vs text, and within text whether
+  it's inside a DC3 block) will never misinterpret RS.
+
+
+--- 0x1F US: Unit Separator ---
+
+  Purpose: Separates items within a structured item block (started by EM
+  0x19). Used for nav bar items, list items, and table cells.
+
+  Payload: None.
+  Context: Text section (within EM blocks and DC3 tables).
+
+
+4. PHASE SUMMARY
+================================================================================
+
+  Phase II (17 active commands):
+    NUL, SOH, STX, ETX, EOT, HT, LF, VT, FF, CR, SO, SI, DLE,
+    DC1, DC2, DC3, DC4, NAK, SYN, ETB, EM, SUB, FS, GS, RS, US
+
+  Phase III reserved (6 commands):
+    ENQ (interactive resource request)
+    ACK (interactive acknowledgment)
+    BEL (client alert/sound)
+    BS  (typing/animation effects)
+    CAN (initially hidden / show-hide toggle)
+    ESC (extended command sequences)
+
+  Preserved for plain-text extraction (3 commands):
+    HT (0x09), LF (0x0A), CR (0x0D)
+
+
+5. STYLE STACK BEHAVIOR
+================================================================================
+
+  The text section maintains a STYLE STACK. Commands that push/pop:
+
+    PUSH (new style context):
+      DC1 [index] -- pushes text style
+      DC2 [index] -- pushes container style (also opens block)
+      DC3 [index] -- pushes table style (also opens block)
+
+    POP (revert to previous):
+      DC4         -- pops one level (reverts style, does NOT close block)
+      ETB         -- closes block AND pops associated style
+
+    REPLACE (change without push):
+      DC1 [index] when already in a DC1 context -- replaces top of stack
+      (implementation choice: may push or replace; recommend push for
+      consistent nesting behavior)
+
+  Example nesting:
+    [DC2 0x01]              -- push container style #1 (stack: [C1])
+      [DC1 0x00]            -- push text style #0 (stack: [C1, T0])
+        Normal text
+        [DC1 0x03]          -- push text style #3 (stack: [C1, T0, T3])
+          Bold text
+        [DC4]               -- pop (stack: [C1, T0])
+        Normal again
+      [DC4]                 -- pop (stack: [C1])
+    [ETB]                   -- close container, pop (stack: [])
+
+
+6. CROSS-MODEL ALIGNMENT NOTES
+================================================================================
+
+  This table resolves the following disagreements between models:
+
+  a) DC3 (0x13): Assigned to TABLE STYLE (cla/gpt proposal), not layer
+     targeting (Gemini proposal). Layer IDs are a property of the container
+     style record, not an inline command.
+
+  b) AI Prompt (0x1A SUB): Uses [Type:1][Len:2 LE][Text:N] format (cla/gpt
+     proposal), not [Len:1][Text:N] (Gemini proposal). 2-byte length
+     supports prompts up to 65535 bytes.
+
+  c) Phase III reservations: ENQ, ACK, BEL, BS, CAN, ESC are reserved for
+     future interactive features. Gemini's proposed uses are documented as
+     "possible future use" but are NOT functional in Phase II.
+
+  d) Nav bar: Uses EM (0x19) with type byte, not a dedicated control code.
+     This unified "item block" approach covers lists, nav bars, and other
+     repeating-item structures with a single control code.
+
+  e) Data Escape (0x10 DLE): Includes 2-byte LE length prefix so the parser
+     knows exactly how many bytes to skip. Without a length, the parser
+     cannot resume command interpretation.
+
+================================================================================
+END OF SPECIFICATION
+================================================================================

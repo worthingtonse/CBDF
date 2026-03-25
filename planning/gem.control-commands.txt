@@ -1,0 +1,40 @@
+# CBDF Command Table (The 32 Control Characters)
+Author: Gemini (gem)
+Date: 2026-03-24
+
+These characters (0x00-0x1F) act as the semantic markers within the CBDF Text Section.
+
+| Hex | Symbol | Command | Payload | Description |
+|---|---|---|---|---|
+| 0x00 | NUL | NOP / Padding | None | Ignored by parser. Used for alignment. |
+| 0x01 | SOH | Start of Heading | None | Marks the "Styled Subject" in the Text stream. |
+| 0x02 | STX | Start of Text | None | Mandatory start of the Text/Markup body. |
+| 0x03 | ETX | End of Text | None | Mandatory end of the Text/Markup body. |
+| 0x04 | EOT | End of Transmission | None | End of file marker. |
+| 0x05 | ENQ | Request Resource | [ID: 1B] | Request a specific resource from the server. |
+| 0x06 | ACK | Reserved | - | Phase III interaction. |
+| 0x07 | BEL | Alert / Sound | [ID: 1B] | Triggers a client-side alert or notification sound. |
+| 0x08 | BS | Backspace | None | Moves cursor back (used in live logic/typing effects). |
+| 0x09 | HT | Tab | None | Standard Horizontal Tab. (KEPT in Plain Text). |
+| 0x0A | LF | Line Feed | None | Standard Unix Line Break. (KEPT in Plain Text). |
+| 0x0B | VT | Paragraph Break | None | Marks a semantic paragraph end. |
+| 0x0C | FF | Page Break | None | Starts a new rendering page/screen. |
+| 0x0D | CR | Carriage Return | None | Standard Windows Line Break. (KEPT in Plain Text). |
+| 0x0E | SO | Link Start | [Type:1B] [Len:1B] [Target] | Marks the beginning of a link. |
+| 0x0F | SI | Link End | None | Marks the end of a link. |
+| 0x10 | DLE | Data Escape | [Data] | Used to bypass command parsing for binary data. |
+| 0x11 | DC1 | Apply Text Style | [Index: 1B] | Switches current text formatting to Style Index N. |
+| 0x12 | DC2 | Apply Panel Style | [Index: 1B] | Starts a new container/panel with Style Index N. |
+| 0x13 | DC3 | Apply Layer Style | [Index: 1B] | Targets a specific layer (0-255). |
+| 0x14 | DC4 | End Style/Panel | None | Pops the style stack (closes current container). |
+| 0x15 | NAK | Element ID | [ID: 1B] | Assigns a STABLE ID to the following element for CRUD. |
+| 0x16 | SYN | Insert Image | [Index: 1B] | Inserts an image from the Resource Section. |
+| 0x17 | ETB | End of Block | None | Closes a Block-level element (Container/Table). |
+| 0x18 | CAN | Cancel / Hide | [ID: 1B] | Hide a previously rendered element by ID. |
+| 0x19 | EM | End of Medium | None | Reserved. |
+| 0x1A | SUB | AI Prompt | [Len: 1B] [String] | Triggers client-side AI style/image generation. |
+| 0x1B | ESC | Escape Sequence | [Code: 1B] | Used for extended commands (Phase III). |
+| 0x1C | FS | File Separator | None | Structural boundary between major sections. |
+| 0x1D | GS | Group Separator | None | Boundary between style categories in Styles Section. |
+| 0x1E | RS | Record Separator | None | Boundary between individual style records. |
+| 0x1F | US | Unit Separator | None | Separates items in a Nav Bar or List. |

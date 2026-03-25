@@ -1,0 +1,54 @@
+# CBDF (Compact Binary Document Format) Pre-Planning Document
+Author: Gemini (gem)
+Date: 2026-03-24
+Status: Rev 5 - Finalized Transparency & Section Order
+
+## 1. Project Overview
+CBDF is an ultra-efficient binary replacement for HTML/CSS. It uses a 5-section architecture optimized for "Abortable Download," allowing clients to save bandwidth by closing the connection after the Text section and before the heavy Resource section.
+
+## 2. Updated Decisions & Specifications
+
+### A. Document Structure (Section Layout)
+Separated by `FILE_SEPERATOR` (0x1C). **Order is final:**
+1. **Meta Section:** Key/Length/Value pairs. 
+    *   **Mandatory Key:** `Text-Start Offset` (4 bytes). Points to the start of the Text Section for $O(1)$ previewing.
+    *   **Mandatory Key:** `Default Style Set ID` (1 byte). 0=Explicit, 1=System Default, 2+=Named Themes.
+2. **Styles Section:** [Length: 4 bytes] + Lookup tables.
+3. **Text Section:** [Length: 4 bytes] + `STX` (0x02) + UTF-8 content interleaved with control codes + `ETX` (0x03).
+4. **Resource Section:** [Length: 4 bytes] + Binary blobs (Images, Fonts, iFrame payloads). **Placed after Text** to allow clients to abort the download.
+5. **Logic Section:** [Length: 4 bytes] + BEAM/Elixir bytecode (Phase III).
+
+### B. Layout Byte (8-bit Field)
+*   **Bits 0-3 (Panels):** Bit 0: Header, Bit 1: Footer, Bit 2: Left Aside, Bit 3: Right Aside. (1=Exists, 0=None).
+*   **Bits 4-5 (Columns):** 00=1, 01=2, 10=3, 11=4 columns.
+*   **Bits 6-7 (Rows):** 00=1, 01=2, 10=3, 11=4 rows.
+*   *Main container is always implied.*
+
+### C. Style Record Architecture (Tiered System)
+Styles are grouped by `GROUP_SEPERATOR` (0x1D). Each sub-table starts with a **Header Byte**:
+*   **Bits 0-1 (Tier):** 00=Basic (6 bytes), 01=Extra (12 bytes), 10=Rare (18 bytes).
+*   **Bits 2-7 (Count):** Number of records in this sub-table.
+*   **Tier 1: Basic (6 bytes):** Font ID (2B), Text Color (2B), Size (1B), Flags (1B).
+*   **Tier 2: Extra (+6 bytes):** Shadow (packed), BG-Color (2B), Line-Height.
+*   **Tier 3: Rare (+6 bytes):** Font Effects (4 bits), Effect Intensity, Text-Direction, Effect Color.
+
+### D. The "Egg" (Box Model)
+*   **Hierarchy:** `Container -> Margin -> Border -> Padding -> Egg (Content)`.
+*   **Math:** Percentages must sum to 100% relative to parent.
+
+### E. Colors & Transparency (The "Blue Blind Spot" Range)
+*   **Color Format:** 16-bit R5G6B5.
+*   **Transparency Range:** Reserved codes in the Deep Blue spectrum (MacAdam Ellipse blind spot). 
+    *   **Range:** `0x007F` (decimal 127) through `0x0088` (decimal 136).
+    *   **Mapping:** `0x007F` = 0% Opaque (Fully Transparent) ... `0x0088` = 90% Opaque.
+    *   **Rationale:** Exploits human foveal tritanopia (lack of blue cones in center vision). Pure black (0x0000) is preserved.
+
+### F. AI & Interactive Elements
+*   **AI Prompts:** Receiver-evaluated via `SUB` (0x1A). No fallback embedded; client uses local defaults.
+*   **Links:** `SO` (0x0E) + Type Byte + Length + Target.
+*   **Images:** Inserted via `SYN` (0x16) + **Positional Index** into Resource Section. Style record includes `width/height` for placeholder rendering.
+
+## 3. Implementation Guidelines
+*   **C Canonical:** Zero-copy parser/serializer in **C**.
+*   **Plain-Text Mode:** Extract by stripping bytes 0x00-0x1F except `HT` (0x09), `LF` (0x0A), `CR` (0x0D).
+*   **Decompression:** Whole-blob decompression of Styles/Text/Resources if flagged in Meta.

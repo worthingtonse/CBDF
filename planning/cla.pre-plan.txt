@@ -1,0 +1,1016 @@
+================================================================================
+  CBDF PRE-PLANNING DOCUMENT
+  Compact Binary Document Format - Phase II Styles & Text Sections
+  Generated: 2026-03-24  |  Rev 2: stakeholder answers
+  Rev 3: cross-model review  |  Rev 4: feedback + stakeholder round 2
+  Rev 5: compression, transparency, tiers, meta, resources
+================================================================================
+
+TABLE OF CONTENTS
+  1. Project Summary & Scope
+  2. Inventory of Existing Work
+  3. Resolved Decisions (answers locked in)
+  4. Remaining Decisions (still need design work)
+  5. Section-by-Section Breakdown
+     5A. Document Structure (5 sections with FS separators)
+     5B. Styles Section Architecture
+     5C. Text/Markup Section Architecture
+     5D. Resources Section (Images, Binary Data) [LAST, for abortable download]
+     5E. Special Features (AI, iFrames, Compression)
+  6. Constraints & Non-Negotiables
+  7. Risks & Unknowns
+  8. Suggested Next Steps
+
+================================================================================
+1. PROJECT SUMMARY & SCOPE
+================================================================================
+
+Goal: Design the Styles section and Text section of the CBDF format so that
+marked-up documents (qmail emails and qweb pages) can be rendered with rich
+styling while using dramatically fewer bytes than HTML/CSS.
+
+What is IN scope for this planning round:
+  - Style definition architecture (background, panel, text, table, nav, image,
+    form, modal, iframe styles)
+  - Text markup architecture (how styled text references styles)
+  - Plain-text fallback mechanism
+  - Font system (IDs, sub-fonts, effects)
+  - Color system (16-bit with reserved transparency codes)
+  - Layout byte and panel system
+  - Layer system (background, containers, modals, overlays)
+  - Resources section for images and binary data
+  - AI prompt tags (receiver-side rendering)
+  - Compression strategy metadata
+  - Existing C encoder compatibility (qmail_cbdf.h / qmail_cbdf.c)
+  - Link system (URLs, page IDs, mailbox addresses)
+
+What is OUT of scope (but must be designed to not block):
+  - Logic section (Erlang/BEAM)
+  - Meta section (mostly done for Phase I)
+  - Actual font table compilation
+  - Client renderer implementation
+  - Forms (Phase III, will be advanced: SVG-based, animated, PowerPoint-style)
+
+Cross-model review notes (Rev 3):
+  This pre-plan has been compared against plans produced by Gemini and GPT.
+  Several ideas from those plans have been incorporated where they improve
+  this design. Differences are noted inline with [CROSS-MODEL] tags.
+
+================================================================================
+2. INVENTORY OF EXISTING WORK
+================================================================================
+
+Specification documents (all drafts):
+  - 0. Overview.md         -- High-level CBDF/QMail description
+  - 1. Outline.md          -- File structure with FS/GS/RS/US separators
+  - A1. Meta.md            -- Phase I metadata (GUID, subject, to/cc/from, etc.)
+  - A2. Styles.md          -- Most developed; layout byte, panel styles, text
+                              styles, container styles, CSS property clusters
+  - A3. Text.md            -- Empty
+  - A4. Logic.md           -- Empty
+  - ASCII-Non-Printable.md -- Reference table of control characters 0x00-0x1F
+
+C implementation (Phase I only):
+  - qmail_cbdf.h           -- Encoder API: qmail_cbdf_params_t, qmail_cbdf_encode
+  - qmail_cbdf.c           -- Working Phase I encoder: meta pairs + FS + FS + STX
+                              + body. No styles section yet.
+
+C++ stubs (empty -- will be replaced with C per stakeholder decision):
+  - src/parser.cpp          -> will become parser.c
+  - src/serializer.cpp      -> will become serializer.c
+
+Key observations about existing work:
+  a) Phase I is implemented and working (plain text only).
+  b) The style specs in A2.Styles.md contain MULTIPLE competing proposals that
+     have not been reconciled (e.g., text styles are defined as both 6-byte and
+     8-byte records in different places; font IDs range from 6 bits to 16 bits
+     depending on which section you read).
+  c) The separator hierarchy (FS > GS > RS > US) is established but the exact
+     content between separators is not finalized.
+  d) No spec exists yet for the text markup section (A3.Text.md is empty).
+  e) No spec exists for layers, modals, iframes, AI tags, or image tags.
+  f) Layout byte has a bug: column encoding "00=1 01=2 11=3" skips 10.
+
+================================================================================
+3. RESOLVED DECISIONS (stakeholder answers locked in)
+================================================================================
+
+Each decision below has been answered by the stakeholder. These are now firm
+design constraints.
+
+--- FONT SYSTEM ---
+
+R01. FONT ID WIDTH: 2 bytes (16 bits).
+     Rationale: Need at least 2000 fonts (CoolText.com). 2 bytes gives 65536
+     slots. The extra bits beyond the font index can encode font
+     characteristics (see R02).
+     IMPACT: Every text style record uses 2 bytes for font ID instead of 1.
+     The stakeholder accepts this trade-off.
+
+R02. FONT SUB-VARIANTS: A single font file (e.g., Arial) may contain bold,
+     light, condensed, etc. sub-variants. These are handled by STYLE CODES
+     (bold/italic/weight flags in the text style record), NOT by assigning
+     a separate font ID to each sub-variant.
+     RATIONALE: This keeps the font table clean (one entry per font family)
+     and puts variant selection into the style flags where it belongs.
+     DESIGN NOTE: The 16-bit font ID field can be split:
+       Bits 0-11:  Font family index (0-4095, covers 2000+ fonts)
+       Bits 12-15: 4 bits for font sub-variant hints (if the style flags
+                   are not sufficient). These 4 bits could encode:
+                   Bit 12: Condensed
+                   Bit 13: Extended
+                   Bit 14: Monospace variant
+                   Bit 15: Reserved
+     This gives us 4096 font families with 16 sub-variant combinations, all
+     in 2 bytes. The bold/italic/underline remain in the flags byte.
+
+R03. FONT EFFECTS: At least 16 effects needed. Effects are standardized
+     (sender and receiver use the same standard, so rendering is identical).
+     Effects go in the "rare" tier of the text style record as spare bits.
+     We need at least 4 bits (16 effects) and ideally a few parameter bits.
+     PROPOSED EFFECT LIST (4-bit ID, 0-15):
+       0  = None
+       1  = Drop shadow
+       2  = Outer glow
+       3  = Pulsing glow (animated)
+       4  = Gradient fill (2-color)
+       5  = Gradient fill (rainbow/multi)
+       6  = Outline/stroke
+       7  = Emboss/bevel
+       8  = Glitter (animated)
+       9  = Fire/flames (animated)
+       10 = Neon
+       11 = 3D extrude
+       12 = Reflection
+       13 = Frosted/glass
+       14 = Metallic
+       15 = Custom (references a font-effects sub-table for full params)
+     Effect 15 ("Custom") allows complex effects with full parameters stored
+     in a separate font-effects sub-table. Effects 1-14 use standardized
+     rendering with default parameters. Additional parameter bits (color,
+     speed, intensity) can be packed into remaining bits in the rare tier.
+
+R04. PARSER LANGUAGE: C (not C++).
+     The canonical parser and serializer will be in C to match the existing
+     qmail_cbdf.c encoder. The empty C++ stubs will be replaced.
+
+R05. AI PROMPTS: Evaluated by the RECEIVER (client-side), not the sender.
+     Purpose is to reduce document size -- instead of embedding a complex
+     style definition, send a short text prompt that the receiver's AI
+     interprets. If the client has no AI, it uses a DEFAULT PROMPT stored
+     in the client's local settings. The user can customize this default.
+     IMPLICATION: There is no "fallback style" embedded in the document.
+     The AI prompt IS the style source. Non-AI clients apply their
+     configured default style instead.
+
+R06. LINKS: Type byte prefix + target data. All four target types supported:
+       Type 0: URL string (1-byte length + UTF-8 URL)
+       Type 1: QWeb page ID (fixed-size page identifier)
+       Type 2: Mailbox address (7 bytes, same format as meta)
+       Type 3: Reserved for future types
+
+R07. FORMS: Deferred to Phase III. Phase III will feature advanced forms with:
+     - SVG-based precision layout
+     - PowerPoint-style animations
+     - Rich input types beyond HTML
+     - Binary SVG format for precise rendering
+     For Phase II, we only need to RESERVE space in the control character
+     table and style sub-table list for future form support. No
+     implementation.
+
+R08. COMPRESSION: Decompression is always acceptable. No need to store plain
+     text outside the compressed portion. A meta key specifies the algorithm.
+
+     [Rev 5] COMPRESSION SCOPE REFINED: Only Styles and Text sections are
+     compressed. The Resources section is LEFT UNCOMPRESSED because:
+       a) Images (JPEG, PNG, WebP) are already compressed. Re-compressing
+          them wastes CPU and produces negligible or negative size reduction.
+       b) Custom fonts are already compressed (WOFF2, etc.).
+       c) The resources section is the last data section and may not even
+          be downloaded -- compressing it just to decompress it is wasteful.
+     DESIGN: The meta compression key means "Styles and Text are compressed
+     using algorithm X." Resources are always raw. The compressed blob
+     spans from the first FS to the third FS (covering Styles + Text).
+     The Resources section (after the third FS) is uncompressed.
+
+R09. MAX DOCUMENT SIZE: Section-specific limits:
+     - Meta section: Limited (size TBD, but small -- it's just key/value pairs)
+     - Styles section: Limited (size TBD, but a 2-byte or 4-byte length prefix
+       sets the practical ceiling)
+     - Text section: NO LIMIT (4-byte length prefix = up to 4GB)
+     - Resources/Images section: NO LIMIT
+     The limits on meta and styles prevent abuse in those sections while
+     allowing large documents with lots of text and images.
+
+R10. GRADIENTS: Simplified to "gradient type + N color stops" where N is
+     variable. This replaces the previous 2-color/3-color/4-color flags.
+     FORMAT:
+       [gradient_type: 4 bits] (0=none, 1=linear, 2=radial, 3=conic, etc.)
+       [angle/position: 4 bits]
+       [num_stops: 1 byte] (0-255 color stops)
+       [color_stop: 2 bytes each] (R5G6B5 for each stop)
+     This is more flexible and only costs bytes when gradients are actually
+     used.
+
+R11. LAYOUT BYTE BUG: Fix the column/row encoding to use proper 2-bit values:
+       00=1, 01=2, 10=3, 11=4
+     The original skip of binary 10 was unintentional.
+     Additionally, the layout byte structure can be redesigned. The first four
+     bits described which panels exist and the last four described corners.
+     This can be changed if a better scheme is found.
+
+R12. IMAGES / RESOURCES SECTION: Images get their own FS-separated section
+     in the document. This allows clients to OPTIONALLY skip downloading
+     images to save bandwidth.
+
+     [Rev 4] SECTION ORDER RESOLVED: Resources goes LAST (before Logic).
+     The Rev 3 cross-model review placed Resources before Text for single-
+     pass parsing. However, Gemini correctly argued that placing Resources
+     at the END enables "abortable download": a client can close the network
+     stream as soon as it has the text, without downloading image data at
+     all. Over a standard socket, "skipping" bytes in the middle of a stream
+     still requires downloading them. The stakeholder confirmed: "I don't
+     see a downside to having an image section last."
+
+     FINAL document structure:
+       [Meta] FS [Styles] FS [Text] FS [Resources] FS [Logic]
+
+     The parser reads styles first (small), then text (references images by
+     index but renders placeholders until resources are loaded), then
+     resources (can be streamed in progressively or skipped entirely).
+     This is a TWO-PASS approach for full rendering: first pass renders
+     text with placeholders, second pass fills in images as resources load.
+     Plain-text extraction is single-pass (read meta + text, ignore rest).
+
+     MISSING IMAGE DISPLAY: Client's choice. Image definitions in the
+     styles section include width/height so placeholders can be properly
+     sized. Client may show a placeholder box or reflow text.
+
+R13. COLOR TRANSPARENCY: Instead of adding an alpha channel to every color,
+     RESERVE specific color codes from the 65536 R5G6B5 space for
+     transparency levels.
+
+     [Rev 4] [Rev 5 -- corrected after R5G6B5 analysis]
+
+     [Rev 5 originally chose 0x0001-0x000A (10 codes). Rev 6 reduced to 5.]
+
+     Previous proposals and why they were rejected:
+       - 0x0000-0x0009: Stakeholder rejected -- loses pure black (0x0000).
+       - 0x1110-0x1119 (Gemini): Rejects distinguishable dark teal colors.
+       - 0x7F01-0x7F0A (Rev 4): WRONG. Actual R5G6B5 decode revealed these
+         are bright lime greens (#7BE308-#7BE352), not "loopback grays."
+         The stakeholder's "127" analogy didn't map to R5G6B5 as expected.
+       - 0xFFF6-0xFFFF: Would sacrifice near-white. White is common.
+
+     [Rev 6] REDUCED TO 5 CODES per stakeholder request.
+     No need for 0% transparent (fully transparent = just don't draw it).
+     Stakeholder confirmed that row 3 of the comparison BMP (codes
+     0x000B-0x0014) had the most indistinguishable middle section. The
+     5 codes in the center of that row (0x000C-0x0010) were confirmed
+     by visual inspection to look identical on screen.
+
+     FINAL ADOPTED RANGE: 0x000C through 0x0010 (5 codes).
+
+       Code   | R5G6B5 decode        | RGB8         | Luminance | Transparency
+       -------|----------------------|--------------|-----------|-------------
+       0x000C | R=0  G=0  B=12 of 31 | #000063      | 7.1       | 100% transp.
+       0x000D | R=0  G=0  B=13       | #00006B      | 7.7       | 80% transp.
+       0x000E | R=0  G=0  B=14       | #000073      | 8.3       | 60% transp.
+       0x000F | R=0  G=0  B=15       | #00007B      | 8.9       | 40% transp.
+       0x0010 | R=0  G=0  B=16       | #000084      | 9.5       | 20% transp.
+
+     Why this range:
+       1. Stakeholder visually confirmed these 5 are indistinguishable.
+       2. All R=0, G=0, blue-channel only. Human eyes are least sensitive
+          to blue variations (fewest S-cones).
+       3. Luminance 7-10 out of 255: effectively black on any display.
+       4. Pure black (0x0000) preserved. Pure white (0xFFFF) preserved.
+       5. Only 5 codes sacrificed instead of 10 -- less color space loss.
+       6. No conflict with control characters: color values appear in style
+          records, never in the text stream where 0x0010 = DLE.
+
+     Usage: 100% opaque = any normal color code (the color itself).
+     If the color field contains 0x000C-0x0010, the renderer applies the
+     transparency level instead of drawing a color.
+
+R14. EGG CONCEPT CLARIFIED: The "Egg" is the CONTENT AREA in the CSS box
+     model. It is the innermost region surrounded by padding, which is
+     surrounded by border, which is surrounded by margin. The egg contains
+     the actual content (text, images, tables, etc.). Its size is calculated
+     as: total_area - margin - border - padding = egg.
+     This is equivalent to CSS "content-box." The name "egg" is a CBDF-
+     specific term for this concept.
+
+--- ADDITIONS FROM CROSS-MODEL REVIEW (Rev 3) ---
+
+R15. [CROSS-MODEL from GPT] DEFAULT STYLE SET FLAG: Confirmed by stakeholder.
+     A meta flag indicates "use client's default style set." When set, the
+     styles section is empty or contains only DELTAS from the default. This
+     avoids transmitting standard styles that every client already knows.
+     For simple emails, the styles section could be 0 bytes.
+
+     [Rev 4] Stakeholder also confirmed that users can apply THEMES to their
+     file viewer that are outside the scope of the document format. This
+     means the client can override document styles with user preferences
+     (dark mode, high contrast, custom fonts, etc.) without the document
+     needing to know about it. The CBDF format does not need to encode
+     theme information -- themes are purely a client-side rendering concern.
+
+     DESIGN: Meta key (TBD) with value:
+       0 = No default styles (all styles explicit in document)
+       1 = Use client default style set (styles section contains deltas only)
+       2-255 = Named style set IDs (e.g., "corporate", "casual", "newsletter")
+     The client's theme system sits ABOVE this: even if a document specifies
+     explicit styles, the user's theme preferences can override them.
+
+R16. META AS "ENVELOPE" -- RICH PREVIEW WITHOUT DOWNLOADING BODY.
+
+     [Rev 5] The stakeholder proposed a much better approach than a simple
+     byte offset: expand the meta section into a complete "envelope" that
+     contains everything an email client needs for the inbox list view.
+     The client downloads ONLY the meta section, displays it, and the user
+     decides whether to download the rest (styles, text, resources).
+
+     This eliminates the need for a text-start offset entirely.
+
+     NEW META KEYS for Phase II (in addition to Phase I keys):
+       Key TBD: Version/format type (1 byte: 0=plain, 1=styled, 2+=future)
+       Key TBD: Compression type (1 byte: 0=none, 1=zlib, 2=LZ4, 3=Zstd)
+       Key TBD: Default style set flag (1 byte: 0=explicit, 1=defaults)
+       Key TBD: AI Summary (variable, max 255 bytes UTF-8) -- AI-generated
+                one-line summary for inbox preview
+       Key TBD: Preview text (variable, max 255 bytes UTF-8) -- first ~100
+                characters of body text for inbox snippet
+       Key TBD: Subject style index (1 byte) -- references a text style ID
+                for rendering the subject in the inbox with formatting
+
+     The meta section thus becomes a self-contained "envelope":
+       - Subject (already in Phase I)
+       - From / To / CC (already in Phase I)
+       - Timestamp (already in Phase I)
+       - AI Summary (new) -- "Meeting rescheduled to Friday"
+       - Preview text (new) -- "Hi team, just wanted to let you know..."
+       - Subject style (new) -- render subject in bold red, etc.
+
+     [Rev 6] META-ONLY DOCUMENTS (EOF property):
+       Key TBD: EOF flag (1 byte, value=1) -- signals that the document
+                consists of ONLY the meta section. No styles, text, resources,
+                or logic sections follow. No FS separators after meta.
+       This enables ultra-compact messages:
+         - Plain text SMS-style messages (subject = the message)
+         - Simple email notifications ("Meeting at 3pm")
+         - Future cell phone text messages
+         - System status messages
+       A meta-only document with subject "Hello" could be as small as:
+         [pair_count: 2 bytes] [EOF key + value: 3 bytes]
+         [subject key + length + "Hello": 8 bytes] = 13 bytes total.
+       The parser checks for the EOF flag before looking for FS separators.
+
+     Email client workflow:
+       1. Download meta section only (small, uncompressed, fast)
+       2. Display in inbox list: subject, from, date, preview, AI summary
+       3. If EOF flag is set: message is complete, no further download needed
+       4. Otherwise: user opens email -> download remaining sections
+
+     This is a MAJOR bandwidth optimization for email. Most emails in an
+     inbox are never opened -- the meta envelope lets the client show them
+     without downloading the body at all. Meta-only messages need no
+     further download at all.
+
+R17. [CROSS-MODEL from GPT] PER-SECTION COMPRESSION: Instead of compressing
+     everything after meta as one blob, allow per-section compression.
+     Each section's length prefix could include a compression-type nibble.
+     This enables: compressing the resources section (images) differently
+     from the text section, or leaving resources uncompressed if they're
+     already in a compressed format (JPEG, PNG, WebP).
+     ALTERNATIVE: Keep whole-blob compression as the primary approach but
+     add per-section compression as a future option (a meta flag distinguishes
+     the two modes).
+
+R18. [CROSS-MODEL from Gemini] ZERO-COPY PARSING: The C parser should be
+     designed for zero-copy operation where possible -- pointing into the
+     binary buffer rather than allocating and copying. This is critical for
+     performance on resource-constrained devices (which is part of the CBDF
+     mission: running on consumer-grade hardware).
+     IMPLICATION: Style records and text content should be aligned and
+     structured so that pointers into the buffer are valid without
+     realignment. Avoid odd-byte structures where possible.
+
+R19. [CROSS-MODEL from GPT] STABLE ELEMENT IDS FOR CRUD: Elements marked
+     with an ID (0x15 [id:1]) must have stable, unique IDs within the
+     document. The Logic section will use these IDs to create, read, update,
+     and delete content. IDs must survive document edits (re-serialization)
+     without renumbering.
+     DESIGN: Element IDs are 1-byte (0-255, max 256 addressable elements).
+     If more are needed, a 2-byte extended ID format can be introduced
+     using a reserved ID value (e.g., 0xFF = "next 2 bytes are the real ID").
+
+R20. [CROSS-MODEL from Gemini/GPT] AI PROMPT CONTROL CODE CHOICE:
+     This plan proposed ESC (0x1B) for AI prompts. Gemini proposed SUB (0x1A).
+     Arguments for each:
+       ESC (0x1B): Semantically fits "escape into AI mode." Traditional use
+                   is terminal escape sequences, which is not relevant here.
+       SUB (0x1A): Semantically fits "substitute" (AI substitutes a generated
+                   style/image). Less overloaded historically.
+     RESOLUTION: Use SUB (0x1A) for AI prompts. ESC (0x1B) is freed up for
+     potential future use (e.g., escape sequences for extended control codes
+     beyond the 32 ASCII control characters, if the format ever needs more
+     than 32 commands).
+
+R21. [CROSS-MODEL from Gemini] LINK TYPE EXPANSION: Add type 3 = Action/Script
+     for links that trigger Logic section actions rather than navigating.
+     REVISED link types:
+       Type 0: URL string (1-byte length + UTF-8 URL)
+       Type 1: QWeb page ID (fixed-size page identifier)
+       Type 2: Mailbox address (7 bytes, same format as meta)
+       Type 3: Action/Script trigger (1-byte action ID, for Logic section)
+       Type 4+: Reserved for future types
+
+R22. [CROSS-MODEL from GPT] DOMAIN-SPECIFIC COMPRESSION TECHNIQUES: Beyond
+     standard algorithms (zlib, LZ4, Zstd, Brotli), consider CBDF-specific
+     compression tricks:
+       a) Style-table deduplication: If multiple documents share the same
+          style set, the "default style set" flag (R15) eliminates redundancy.
+       b) RLE-lite for repeated control codes: Long runs of the same style
+          reference (e.g., entire paragraphs in style #0) could use a
+          "repeat" control code instead of re-emitting the style code.
+       c) Fixed tables: Layout table and font table are fixed in the client,
+          never transmitted. Color is 16-bit direct, never needs a palette.
+       d) Indexed references over repetition: All styles, images, effects
+          are defined once in their sub-tables and referenced by 1-byte
+          index everywhere else.
+     These are already partially inherent in the CBDF design but should be
+     documented as explicit compression strategies.
+
+================================================================================
+4. REMAINING DECISIONS (still need design work)
+================================================================================
+
+These decisions have direction from the stakeholder but need detailed design.
+
+--- DOCUMENT STRUCTURE ---
+
+D01 [RESOLVED] Section ordering (final, Rev 4):
+    [Meta] FS [Styles] FS [Text] FS [Resources] FS [Logic]
+    Resources goes LAST (before Logic) to enable abortable downloads:
+    clients can close the stream after receiving text without downloading
+    images. See R12 for full rationale. This reverses the Rev 3 decision.
+    Each section after Meta starts with a 4-byte LE length prefix.
+    REMAINING WORK: Confirm length prefix format (pure 4-byte size, or
+    include compression nibble for future per-section compression).
+
+D02 [CRITICAL] Plain-text extraction: Strip control codes from the text
+    section. Decompression is required first if compressed. This is confirmed.
+    REMAINING WORK: Document exactly which bytes are stripped and which are
+    kept (HT, LF, CR are kept; all others 0x00-0x1F are stripped).
+
+D03 [HIGH] Control character assignment table. This is the backbone document.
+    Partially designed, needs finalization. Must now account for:
+    - Link markers (type byte + variable target, including Action/Script)
+    - Resource/image references
+    - Form placeholders (reserved for Phase III)
+    - AI prompt = SUB 0x1A (all models agree)
+    - Link start = SO 0x0E, Link end = SI 0x0F (all models agree)
+    - Separate DC1/DC2/DC3 for text/container/table styles (per cla feedback
+      to GPT: context-dependent DC1 is ambiguous and error-prone)
+    [Rev 4: GPT and Gemini both emphasize this is the CRITICAL blocker.
+    All three models must align on ONE control character table before any
+    implementation work begins. Currently the main divergence is on which
+    codes are assigned to layer toggle, modal open/close, nav markers, and
+    container targeting.]
+
+    [Rev 5] STAKEHOLDER INPUT ON NAV/LIST DISAMBIGUATION:
+    The stakeholder proposed an elegant approach: use a single control code
+    that means "structured item block follows" with a TYPE byte:
+      [0x19 EM] [type: 1 byte] [style_index: 1 byte]
+    Types: 0=unordered list, 1=ordered list, 2=nav bar, 3=TBD, etc.
+    Items within the block are separated by US (0x1F).
+    Block ends with ETB (0x17).
+    This uses ONE control code for multiple structured-item elements
+    instead of burning a separate code for each type.
+
+    Alternative (stakeholder also suggested): Repeating the command code
+    could signal different types. E.g., single 0x19 = list, double
+    0x19 0x19 = nav bar, triple = something else. This saves the type
+    byte but makes parsing more complex (lookahead required). The type
+    byte approach is cleaner.
+
+    REMAINING WORK: Produce the final 32-character assignment table.
+
+D04 [HIGH] Text style record final layout. Font ID is 2 bytes with the
+    12+4 bit split (R02). Font effects need 4+ bits in the rare tier (R03).
+    REMAINING WORK: Finalize the exact byte layout for all three tiers.
+
+D05 [HIGH] Missing image placeholder behavior. When a client skips the
+    resources section, should images leave:
+    a) An empty box the same size as the image (requires width/height in the
+       image definition in styles)
+    b) No space at all (text reflows)
+    c) Client's choice (the format supports both by always including
+       width/height in image definitions)
+    LEANING: Option (c). Image definitions in styles always include
+    width/height. Client decides whether to show placeholder or reflow.
+
+D06 [RESOLVED] Transparency code range: 0x000C-0x0010 (5 codes). See R13.
+    Reduced from 10 to 5 per stakeholder. Stakeholder visually confirmed
+    these codes are indistinguishable from each other in the comparison BMP.
+    Pure black (0x0000) preserved. Blue-channel-only at luminance 7-10/255.
+
+D07 [MEDIUM] Variable-length gradient color stops. Confirmed to use N stops.
+    REMAINING WORK: Define the exact binary format for gradient definitions
+    within background style records.
+
+D08 [LOW] Layout byte redesign opportunity. The stakeholder is open to
+    changing the bit assignments if a better scheme is found.
+    REMAINING WORK: Evaluate whether the current 8-bit scheme (4 bits for
+    panel existence + 4 bits for corners) is optimal or if a different
+    encoding covers more useful layouts.
+
+--- ADDITIONS FROM CROSS-MODEL REVIEW (Rev 3) ---
+
+D09 [MEDIUM] Default style set IDs (from R15). Need to define:
+    a) What "client default style set" includes (which styles, what values)
+    b) How deltas are encoded (full record replacement? per-field override?)
+    c) Whether named style sets (IDs 2-255) are predefined or user-defined
+    REMAINING WORK: Define the default style set contents and delta encoding.
+
+D10 [RESOLVED] Compression scope (Rev 5):
+    Compress Styles + Text sections only. Resources section left uncompressed
+    (images are already compressed; double-compression wastes CPU). Meta is
+    always uncompressed (serves as downloadable "envelope" for inbox preview).
+    Per-section compression deferred to future version if needed.
+
+D11 [MEDIUM] Nav bar extended features (from GPT cross-review). GPT suggests:
+    - Collapse breakpoint byte (responsive: at what viewport width the nav
+      collapses to a hamburger menu)
+    - Icon/text mode flag (nav items can be icon-only, text-only, or both)
+    - Active item style reference (different style for the current page)
+    These add 3-4 bytes to the nav bar style record but make it significantly
+    more useful. REMAINING WORK: Finalize nav bar record with these fields.
+
+D12 [LOW] RLE-lite for repeated style references (from R22). Could save
+    bytes in long documents where the same style applies to many paragraphs.
+    A "repeat" control code (e.g., 0x10 DLE + count byte) could mean
+    "the current style continues for the next N blocks."
+    REMAINING WORK: Evaluate whether this saves enough bytes to justify
+    the added complexity. May not be worth it if standard compression
+    (zlib/LZ4) already handles this redundancy.
+
+================================================================================
+5. SECTION-BY-SECTION BREAKDOWN
+================================================================================
+
+5A. DOCUMENT STRUCTURE (5 sections with FS separators)
+------------------------------------------------------
+
+  PHASE I (current, unchanged):
+    [Pair Count: 2 LE] [Meta KV pairs] 0x1C 0x1C 0x02 [Body text] EOF
+
+  PHASE II (final section order, Rev 4):
+    [Pair Count: 2 LE] [Meta KV pairs]
+    0x1C [Styles Length: 4 LE] [Styles section bytes]
+    0x1C [Text Length: 4 LE] 0x02 [Markup text bytes] 0x03
+    0x1C [Resources Length: 4 LE] [Resource blobs]
+    0x1C [Logic -- empty for Phase II]
+
+  Resources is the LAST data section (before Logic). This enables abortable
+  downloads: clients can close the network stream after receiving the text
+  section, skipping image data entirely. The text section references images
+  by index; the renderer shows placeholders until/unless resources load.
+
+  The version byte in meta (key 1, value 0=Phase I, 1=Phase II) tells the
+  parser which structure to expect.
+
+  New meta keys for Phase II (in addition to Phase I keys):
+    - Compression type (1 byte: 0=none, 1=zlib, 2=LZ4, 3=Zstd, 4=Brotli)
+    - Default style set flag (1 byte: 0=explicit, 1=use defaults, 2+=named)
+    - AI Summary (variable, max 255 bytes UTF-8, for inbox preview)
+    - Preview text (variable, max 255 bytes, first ~100 chars of body)
+    - Subject style index (1 byte, references text style for subject rendering)
+
+  If compression is enabled, everything from the first FS onward is
+  compressed as a single blob. The meta section is NEVER compressed
+  (it must be readable to discover the compression type).
+
+  RENDERING MODEL: Two-phase rendering.
+    Phase A: Parse meta + styles + text. Render text with image placeholders.
+             Client can display content immediately.
+    Phase B: Stream resources section. Replace placeholders with actual
+             images as they arrive. Client may skip this phase entirely.
+  This is similar to how web browsers progressively render pages.
+
+
+5B. STYLES SECTION ARCHITECTURE
+--------------------------------
+
+  The styles section is organized into sub-tables separated by GS (0x1D).
+  Each sub-table has a fixed order (by type). Empty sub-tables are
+  represented as GS immediately followed by the next GS (or FS).
+
+  [Layout byte: 1 byte]
+  [Page-level background style: variable bytes]
+  GS [Panel/Container background styles sub-table]
+      [header: 1 byte = tier(2 bits) + count(6 bits)]
+      RS [record 0] RS [record 1] ...
+  GS [Panel/Container border styles sub-table]
+      [header: 1 byte = tier(2 bits) + count(6 bits)]
+      RS [record 0] RS [record 1] ...
+  GS [Panel/Container spacing styles sub-table]
+      [header: 1 byte = tier(2 bits) + count(6 bits)]
+      RS [record 0] RS [record 1] ...
+  GS [Panel/Container shadow styles sub-table]
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [Panel/Container composite styles sub-table]
+      (cross-references: bg_id, border_id, spacing_id, shadow_id)
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [Text styles sub-table]
+      [header: 1 byte = tier(2 bits) + count(6 bits)]
+      RS [record 0] RS [record 1] ...
+  GS [Font effects sub-table]
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [Nav bar styles sub-table]
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [Table styles sub-table]
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [Image definitions sub-table]
+      (type, width, height, resource_index or built-in ID or AI prompt)
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [Frame/iframe definitions sub-table]
+      [count: 1 byte]
+      RS [record 0] RS [record 1] ...
+  GS [RESERVED for Form styles -- Phase III]
+  GS [RESERVED for future style types]
+
+  SUB-TABLE TIER SYSTEM (for text and container styles):
+    [Rev 5: Aligned with Gemini's header byte format. All models now agree
+    on explicit tier signaling. The exact byte layout is standardized.]
+
+    Each sub-table begins with a single HEADER BYTE:
+      Bits 0-1: Tier (record size indicator)
+        00 = Base tier only (smallest records)
+        01 = Base + Extended tier
+        10 = Base + Extended + Rare tier
+        11 = Reserved
+      Bits 2-7: Count (0-63 records in this sub-table)
+
+    This is ONE byte, appearing ONCE per sub-table (not per record).
+    ALL records in a sub-table use the SAME tier. The parser reads the
+    header byte, knows the exact record size and count, and can parse
+    all records without per-record headers.
+
+    Maximum 63 records per sub-table (6-bit count). This is sufficient
+    for text styles (63 unique styles per document), container styles,
+    etc. Resource records use their own format (not tiered).
+
+  TEXT STYLE RECORD (proposed):
+    Base tier (8 bytes):
+      Byte 0-1: Font ID (bits 0-11 = family index 0-4095,
+                bits 12-15 = sub-variant: condensed, extended, mono, reserved)
+      Byte 2:   Font size (1-255 points)
+      Byte 3:   Flags bitfield:
+                  Bit 0: Bold
+                  Bit 1: Italic
+                  Bit 2: Underline
+                  Bit 3: Strikethrough
+                  Bit 4: Subscript
+                  Bit 5: Superscript
+                  Bit 6-7: Text align (0=left, 1=center, 2=right, 3=justify)
+      Byte 4-5: Text color (R5G6B5, or 0x000C-0x0010 for transparency)
+      Byte 6-7: Background color (R5G6B5, 0x000C = fully transparent)
+
+    Extended tier adds 4 bytes (total 12):
+      Byte 8-9:  Text shadow (X:6 bits, Y:6 bits, Blur:4 bits)
+      Byte 10:   Letter spacing (signed, -128 to +127)
+      Byte 11:   Line height (0=auto, 1-255 = percentage/10, so 10-2550%)
+
+    Rare tier adds 4 bytes (total 16):
+      Byte 12:   Font effect (4 bits, 0-15 per R03) +
+                  Effect intensity (4 bits, 0-15)
+      Byte 13:   Text transform (2 bits: none/upper/lower/capitalize) +
+                  Text direction (2 bits: LTR/RTL/TTB/BTT) +
+                  Word spacing (4 bits)
+      Byte 14-15: Effect color (R5G6B5, used by glow/shadow/gradient effects)
+
+
+5C. TEXT/MARKUP SECTION ARCHITECTURE
+-------------------------------------
+
+  The text section contains UTF-8 printable text with interspersed control
+  codes. A plain-text reader strips all bytes 0x00-0x1F except:
+    0x09 (HT) = Tab
+    0x0A (LF) = Line feed
+    0x0D (CR) = Carriage return
+
+  Structure:
+    0x02 (STX) -- Start of text section
+    [Optional: 0x01 (SOH) + styled subject text + 0x14 (DC4)]
+    [Body: UTF-8 text with control codes]
+    0x03 (ETX) -- End of text section (or EOF)
+    Note: SOH appears INSIDE the STX/ETX block for single-mode parsing.
+
+  Control codes in body text:
+    0x11 [N]      = Apply text style #N (from text styles sub-table)
+    0x12 [N]      = Start container with composite style #N
+    0x14          = End current style / revert to previous (pop style stack)
+    0x17          = End of current block element
+    0x0B          = Paragraph break
+    0x0C          = Page break / new page
+    0x16 [N]      = Insert image #N (from image definitions sub-table)
+    0x1A [type:1] [len:2 LE] [prompt UTF-8]  = AI prompt (SUB, per R20)
+    0x0E [type:1] [len:1] [target]            = Link start (see R21 for types)
+    0x0F          = Link end
+    0x15 [id:1]   = Element ID (STABLE, for Logic section CRUD per R19)
+    (more TBD in final control character assignment)
+
+  LAYER ASSIGNMENT: A control code before a block element assigns it to
+  a layer. Default = layer 1 (main content). Layer 0 = background.
+
+  ELEMENT ID STABILITY (per R19): IDs assigned via 0x15 must remain stable
+  across document edits and re-serialization. The Logic section depends on
+  these IDs for CRUD operations. ID 0xFF is reserved as an escape to a
+  2-byte extended ID if more than 254 addressable elements are needed.
+
+
+5D. RESOURCES SECTION (Images, Binary Data)
+--------------------------------------------
+  [Rev 4: LAST data section, enabling abortable downloads]
+
+  The resources section is the last data section in the document (before
+  Logic). Clients can close the network stream after receiving the text
+  section, skipping image data entirely to save bandwidth.
+
+  Structure:
+    [Resource count: 2 bytes LE]
+    RS [Resource 0]
+    RS [Resource 1]
+    ...
+
+  Each resource:
+    [Type: 1 byte] (0=image/PNG, 1=image/JPEG, 2=image/WebP, 3=image/SVG,
+                     4=font, 5=audio, 6=video, 7-255=reserved)
+    [Data length: 4 bytes LE]
+    [Raw binary data]
+
+  Image definitions in the styles section reference resources by index.
+  If the resources section is not downloaded, the image definition's
+  width/height fields allow the renderer to show a placeholder box or
+  reflow text (client's choice).
+
+  Built-in images (from the client's lookup table) and AI-generated images
+  do NOT appear in the resources section -- they are handled by the client.
+
+  RESOURCE REFERENCING: [Rev 5: Using 1-byte Resource IDs, not positional
+  indices.] Each resource has a 1-byte ID assigned by the document author.
+  Text references use this ID. This allows servers to strip resources
+  (spam filter, bandwidth limit) without rewriting the text section.
+
+  Revised resource record format:
+    [Resource ID: 1 byte] (0-255, unique within document)
+    [Type: 1 byte] (0=PNG, 1=JPEG, 2=WebP, 3=SVG, 4=font, 5+=reserved)
+    [Data length: 4 bytes LE]
+    [Raw binary data]
+
+  Cost: 1 extra byte per resource. For a document with 5 images averaging
+  50KB each, that's 5 bytes overhead on 250KB of data (0.002%).
+
+
+5E. SPECIAL FEATURES
+---------------------
+
+  AI PROMPTS (receiver-side rendering):
+    Control code: 0x1A (SUB) [revised per R20, was ESC 0x1B]
+    Format: [0x1A] [type:1] [length:2 LE] [UTF-8 prompt text]
+    Types: 0=style prompt, 1=image prompt, 2=layout prompt
+    The receiver's AI interprets the prompt to generate the style/image.
+    If the client has no AI, it applies the user's configured default
+    style (stored in client settings, customizable by the user).
+    ESC (0x1B) is now freed for potential future extended escape sequences.
+
+  IFRAMES / EMBEDDED DOCUMENTS:
+    Frame definitions in the styles section include:
+      [width: 2 bytes] [height: 2 bytes] [sandbox_flags: 1 byte]
+      [source_type: 1 byte] (0=external URL, 1=inline CBDF sub-document)
+      [source: variable] (URL string or resource index)
+
+  MODALS:
+    Modals are layers with a special flag in the layer definition.
+    A modal layer includes:
+      [overlay_opacity: 1 byte] (darkening behind the modal)
+      [container_style_id: 1 byte]
+    Modal content is in the text section, assigned to the modal's layer.
+    Default visibility: hidden (toggled by Logic section).
+
+  COMPRESSION:
+    [Rev 5: Refined scope -- only Styles + Text are compressed.]
+    A meta key (TBD key ID) specifies compression type:
+      0 = None
+      1 = DEFLATE/zlib
+      2 = LZ4
+      3 = Zstandard
+      4 = Brotli
+    Compression applies to the Styles and Text sections ONLY. The
+    compressed blob spans from the first FS to the third FS.
+    The Meta section is NEVER compressed (must be readable as envelope).
+    The Resources section is NEVER compressed (images are already
+    compressed; re-compressing wastes CPU for no gain).
+
+    [CROSS-MODEL from GPT] CBDF-inherent compression techniques (no algorithm
+    needed -- these are baked into the format design):
+      - Fixed client-side tables: Layout templates (256), font table (4096+),
+        and built-in images are never transmitted -- just referenced by ID.
+      - Style-table deduplication: All styles defined once, referenced by
+        1-byte index everywhere. An entire paragraph's formatting = 2 bytes
+        (DC1 + style_index) instead of repeated inline CSS.
+      - Default style set flag (R15): When enabled, styles section can be
+        0 bytes -- client applies built-in defaults.
+      - 16-bit color: Every color is 2 bytes vs CSS's 7 bytes ("#RRGGBB").
+      - Binary encoding: No tag names, no quotes, no whitespace, no closing
+        tags. Every byte carries information.
+
+  NAV BARS (first-class element):
+    A nav bar element in the text section references a nav bar style from
+    the styles sub-table. Nav items are separated by US (0x1F) within the
+    nav bar block. Each item consists of text + link target.
+    [CROSS-MODEL from GPT] Extended nav bar style record fields:
+      - Collapse breakpoint (1 byte): viewport width threshold at which the
+        nav collapses to a hamburger/compact menu (0=never collapse)
+      - Icon/text mode (2 bits): 0=text only, 1=icon only, 2=icon+text, 3=auto
+      - Active item style ref (1 byte): text style ID for the current/active
+        page indicator (allows visual distinction of "you are here")
+    These add ~3 bytes to the nav bar record but make it practical for
+    responsive design without requiring the Logic section.
+
+  LINKS:
+    Start: 0x0E [type:1 byte] [target length:1 byte] [target bytes]
+    End:   0x0F
+    Types (revised per R21):
+      0 = URL string (UTF-8)
+      1 = QWeb page ID (fixed-size identifier)
+      2 = Mailbox address (7 bytes, same as meta)
+      3 = Action/Script trigger (1-byte action ID, for Logic section)
+      4+ = Reserved for future types
+
+================================================================================
+6. CONSTRAINTS & NON-NEGOTIABLES
+================================================================================
+
+  C1.  Backward-compatible with Phase I (version=0 = plain text).
+  C2.  Plain text extractable by stripping control codes (after decompression).
+  C3.  All printable text is UTF-8.
+  C4.  HT (0x09), LF (0x0A), CR (0x0D) retain standard meaning always.
+  C5.  Little-endian byte order for all multi-byte integers.
+  C6.  Maximum subject length: 255 bytes (1-byte length field in meta).
+  C7.  Colors are R5G6B5 (16-bit, 2 bytes) with 5 reserved transparency
+       codes at 0x000C-0x0010 (near-black dark blues). Black 0x0000 preserved.
+  C8.  FS (0x1C) always marks major section boundaries.
+  C9.  Parser and serializer in C (not C++).
+  C10. Font IDs are 2 bytes: 12 bits family + 4 bits sub-variant.
+  C11. At least 16 font effects (4 bits), standardized rendering across clients.
+  C12. AI prompts are evaluated by the receiver, not the sender.
+  C13. Resources section is independently skippable (optional download).
+  C14. Forms are reserved for Phase III (no implementation in Phase II).
+  C15. No size limit on text and resources sections.
+  C16. Decompression is always required before plain-text extraction.
+  C17. "Egg" = content area (CSS content-box equivalent).
+  C18. [CROSS-MODEL] C parser should support zero-copy operation (pointers
+       into buffer, not allocate+copy) for performance on constrained devices.
+  C19. [CROSS-MODEL] Element IDs (0x15) must be stable across re-serialization
+       for Logic section CRUD operations.
+  C20. [Rev 4] Section order: Meta -> Styles -> Text -> Resources -> Logic
+       (abortable download order: client can stop after text).
+
+================================================================================
+7. RISKS & UNKNOWNS
+================================================================================
+
+  R1. BIT-PACKING COMPLEXITY: Heavy use of bit fields makes parsing harder
+      and bugs more likely. Every bit-packed field needs explicit test cases.
+      The 12+4 font ID split is a specific area of concern.
+
+  R2. FONT TABLE MAINTENANCE: Committing to 2000+ specific fonts means
+      maintaining a canonical font table across all clients. Font licensing,
+      availability, and rendering consistency across platforms are challenges.
+      Sub-variant handling (condensed, extended, mono) via bits 12-15 must
+      be well-defined for each font family.
+
+  R3. AI PROMPT NON-DETERMINISM: Different AI implementations may render the
+      same prompt differently. Since prompts are receiver-evaluated, the
+      sender cannot guarantee exact appearance. The default-prompt fallback
+      makes this even more variable. This may be acceptable ("creative
+      styling") or may need constraints.
+
+  R4. BACKWARDS COMPATIBILITY: As the format evolves (Phase II, III, etc.),
+      older clients must gracefully handle newer features. The version byte,
+      section-length prefixes, and reserved GS slots help.
+
+  R5. TRANSPARENCY CODE CONFLICT: [Rev 6: RESOLVED] Range 0x000C-0x0010
+      selected (5 codes). Stakeholder visually confirmed these are
+      indistinguishable. Only 5 codes sacrificed from the 65536 space.
+      Pure black (0x0000) preserved.
+
+  R6. SECURITY: iframes, embedded documents, AI prompts, and resource blobs
+      all introduce attack surfaces. Sandboxing, prompt sanitization, and
+      resource validation will be needed.
+
+  R7. SPEC INCONSISTENCIES: The existing draft documents contain multiple
+      conflicting definitions. These must be reconciled into one canonical
+      spec before implementation. Key conflicts:
+      - Text style record size (6 vs 8 vs 11 bytes)
+      - Font ID width (6 bits vs 8 bits vs 12 bits -- now resolved: 12+4)
+      - Layout byte column encoding (now resolved: 00=1, 01=2, 10=3, 11=4)
+
+  R8. RESOURCES SECTION SKIPPING: If a client skips the resources section,
+      the text section still references images by index. The renderer must
+      handle missing resources gracefully. Image definitions must always
+      include width/height for placeholder sizing.
+
+  R9. FONT EFFECTS STANDARDIZATION: 16 effects must render identically
+      across all clients. This requires a detailed rendering specification
+      for each effect (colors, animation speeds, fallback behavior).
+
+  R10. [CROSS-MODEL] DOUBLE COMPRESSION: [Rev 5: RESOLVED.] Compression now
+       applies only to Styles + Text. Resources section is uncompressed.
+       No double-compression overhead.
+
+  R11. [CROSS-MODEL] RESOURCE ID vs INDEX: [Rev 5: REVERSED -- using IDs.]
+       Gemini's argument is convincing: with positional indices, a server
+       that strips a resource (spam filter, bandwidth limit) must rewrite
+       the entire text section to fix all shifted indices. With 1-byte
+       resource IDs, the server just deletes the resource blob; text
+       references to that ID get a "missing resource" placeholder, and all
+       other references remain valid. Cost: 1 byte per resource. For a
+       document with 5 images, that's 5 bytes vs potentially megabytes of
+       image data. The overhead is negligible relative to the resource sizes.
+
+  R12. [Rev 5: SUPERSEDED.] The text-start offset has been replaced by the
+       "meta as envelope" approach (R16). The meta now contains preview text
+       and AI summary directly, eliminating the need for a byte offset into
+       the compressed body. No stale-offset risk.
+
+================================================================================
+8. SUGGESTED NEXT STEPS
+================================================================================
+
+  STEP 1: CONTROL CHARACTER ASSIGNMENT TABLE
+           Produce the final 32-character assignment as a standalone spec.
+           This is the backbone of the entire format.
+
+  STEP 2: TRANSPARENCY CODE SELECTION
+           Decide which 10 of the 65536 R5G6B5 codes to reserve.
+           Document the mapping (code -> opacity level).
+
+  STEP 3: STYLE RECORD SPECIFICATIONS
+           Finalize exact bit layouts for each style type with all three
+           tiers: text, container background, border, spacing, shadow,
+           composite panel, nav bar, table, image definition, font effect.
+
+  STEP 4: TEXT SECTION SPECIFICATION
+           Document how control codes, text content, and element boundaries
+           interact. Include worked examples as hex dumps:
+           - "Hello **bold** world" (simple style switch)
+           - A two-panel layout with nav bar
+           - An email with styled subject
+           - An AI prompt for styling
+
+  STEP 5: RESOURCES SECTION SPECIFICATION
+           Define resource types, binary blob format, and how image
+           definitions in styles link to resources by index.
+
+  STEP 6: UPDATE C ENCODER
+           Extend qmail_cbdf.c to handle version >= 1:
+           - Styles section encoding
+           - Resources section encoding
+           - Section length prefixes
+           Write qmail_cbdf_decode() for parsing.
+
+  STEP 7: RECONCILE SPEC DOCUMENTS
+           Reorganize the existing .md files to eliminate contradictions
+           and match the final design. Consider this structure:
+             00-Overview.md
+             01-Document-Structure.md
+             02-Meta-Section.md
+             03-Styles-Section.md
+             04-Text-Section.md
+             05-Resources-Section.md
+             06-Logic-Section.md (placeholder)
+             07-Control-Characters.md
+             08-Color-System.md
+             09-Font-System.md
+             10-Compression.md
+             A1-Worked-Examples.md
+
+  STEP 8: TEST CASES
+           Build sample CBDF files (hex dumps) with known expected
+           renderings, covering: plain text, styled text, multiple panels,
+           images, nav bars, tables, layers, modals, AI prompts, links,
+           and compressed documents.
+
+================================================================================
+END OF PRE-PLANNING DOCUMENT
+================================================================================

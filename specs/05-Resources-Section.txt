@@ -1,0 +1,165 @@
+================================================================================
+  CBDF SPECIFICATION: RESOURCES SECTION
+  Document: 05-Resources-Section
+  Version: 1.0 (Phase II)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+The Resources section stores binary data (images, custom fonts, audio, video,
+embedded sub-documents) that are referenced by the Text section. It is the
+LAST data section before Logic, enabling abortable downloads: clients can
+close the network stream after receiving the Text section.
+
+It sits between the third FS (end of Text) and the fourth FS (start of
+Logic). It begins with a 4-byte LE length prefix.
+
+The Resources section is NEVER compressed (images and media are already in
+compressed formats; re-compressing wastes CPU for no gain).
+
+Structure:
+  [Length: 4 bytes LE] [Resource Count: 2 bytes LE] RS [Resource 0] RS [Resource 1] ...
+
+
+2. RESOURCE RECORD FORMAT
+================================================================================
+
+Each resource record is separated by RS (0x1E) and has this structure:
+
+  Field          | Size     | Description
+  ---------------|----------|--------------------------------------------
+  Resource ID    | 1 byte   | Unique ID within the document (0-255)
+  Resource Type  | 1 byte   | Format/media type (see table below)
+  Data Length     | 4 bytes  | LE uint32, size of raw data in bytes
+  Raw Data       | N bytes  | The binary content
+
+  Total overhead per resource: 6 bytes + RS separator = 7 bytes.
+
+  Resource IDs:
+    - Must be unique within the document.
+    - Range 0-255 (1 byte).
+    - Referenced by SYN (0x16) commands in the Text section and by Image
+      Definition records in the Styles section.
+    - ID assignment is at the document author's discretion (no required
+      ordering).
+
+  Resource Types:
+    ID | Type       | Description
+    ---|------------|------------------------------------------
+    0  | image/png  | PNG image
+    1  | image/jpeg | JPEG image
+    2  | image/webp | WebP image
+    3  | image/svg  | SVG vector image (may be compressed)
+    4  | font       | Custom font file (WOFF2, TTF, etc.)
+    5  | audio      | Audio clip (format TBD)
+    6  | video      | Video clip (format TBD)
+    7  | cbdf       | Embedded CBDF sub-document (for iframes)
+    8-255 | reserved | Future media types
+
+
+3. RESOURCE REFERENCING
+================================================================================
+
+Resources are referenced in two places:
+
+  A. Image Definitions (Styles section, sub-table 6J):
+     The Image Definition record includes a Resource ID field (byte 1) that
+     points to the resource containing the image data.
+
+  B. Text section (SYN command 0x16):
+     [SYN resource_id] inserts the image at the current text position.
+     The SYN resource_id matches the Resource ID in this section.
+
+  The indirection is: Text -> Image Definition -> Resource
+    SYN references an image definition (by its sub-table index).
+    The image definition contains the Resource ID and display parameters.
+
+  Alternatively, SYN can reference a Resource ID directly for simple
+  inline images without custom display parameters.
+
+
+4. MISSING RESOURCE BEHAVIOR
+================================================================================
+
+When a resource is unavailable (section not downloaded, or resource stripped
+by a server/filter), the renderer must handle it gracefully:
+
+  A. Image Definitions include Width and Height fields:
+     The renderer can display a placeholder box of the correct size.
+
+  B. Client choice:
+     - Show a placeholder box (outlined rectangle, broken-image icon)
+     - Reflow text as if the image doesn't exist
+     - Show a "download" button for the user to request the resource
+
+  C. Server stripping:
+     A server (spam filter, bandwidth limiter) may remove specific resources
+     by deleting their records from the Resources section. Because resources
+     are referenced by ID (not positional index), removing a resource does
+     NOT invalidate references to other resources. Text references to the
+     removed resource simply get the "missing resource" treatment.
+
+
+5. RESOURCE SECTION LAYOUT
+================================================================================
+
+  Complete section:
+    [Length: 4 bytes LE]        -- total bytes of section content
+    [Count: 2 bytes LE]         -- number of resource records
+    1E                          -- RS (before first resource)
+    [ResID:1][Type:1][Len:4][Data:N]   -- Resource 0
+    1E                          -- RS
+    [ResID:1][Type:1][Len:4][Data:N]   -- Resource 1
+    ...
+
+  Empty section (no resources):
+    [0x00 0x00 0x00 0x02]      -- Length: 2 bytes
+    [0x00 0x00]                 -- Count: 0 resources
+
+  Single image example (a 1024-byte JPEG with ID=1):
+    [0x00 0x04 0x00 0x09]      -- Length: 1033 bytes
+    [0x01 0x00]                 -- Count: 1 resource
+    1E                          -- RS
+    [0x01]                      -- Resource ID: 1
+    [0x01]                      -- Type: image/jpeg
+    [0x00 0x04 0x00 0x00]      -- Data length: 1024 bytes
+    [... 1024 bytes of JPEG data ...]
+
+
+6. SIZE LIMITS
+================================================================================
+
+  - No overall size limit on the Resources section.
+  - Individual resource data length: up to 4 GB (4-byte LE uint32).
+  - Maximum 65535 resources per document (2-byte count field), though the
+    1-byte Resource ID limits unique references to 256. Documents needing
+    more than 256 resources can use the ESC extended command mechanism
+    (Phase III) for 2-byte resource IDs.
+
+
+7. ABORTABLE DOWNLOAD BEHAVIOR
+================================================================================
+
+  The Resources section is deliberately placed LAST (before Logic) so that
+  clients can implement "abortable downloads":
+
+    1. Client begins downloading the CBDF document.
+    2. Meta section arrives first (small, fast).
+    3. Styles + Text arrive next (may be compressed).
+    4. Client renders the text with image placeholders.
+    5. Client displays the rendered content to the user.
+    6. If the user doesn't need images (e.g., text-only mode, low bandwidth):
+       client closes the connection. Resources never download.
+    7. If images are desired: client continues reading the Resources section.
+       Images fill in progressively as each resource record is parsed.
+
+  This is functionally equivalent to how modern web browsers show text
+  before images load, but at the protocol level rather than requiring
+  HTTP range requests or chunked encoding.
+
+
+================================================================================
+END OF SPECIFICATION
+================================================================================
