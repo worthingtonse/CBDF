@@ -30,40 +30,40 @@ The remaining printable UTF-8 bytes are the readable text.
 2. MASTER ASSIGNMENT TABLE
 ================================================================================
 
-| Hex  | Dec | Symbol | Command               | Context    | Payload                          | Phase |
-|------|-----|--------|-----------------------|------------|----------------------------------|-------|
-| 0x00 | 0   | NUL    | No Operation / Padding| Both       | None                             | II    |
-| 0x01 | 1   | SOH    | Start of Heading      | Text       | None                             | II    |
-| 0x02 | 2   | STX    | Start of Text         | Text       | None                             | II    |
-| 0x03 | 3   | ETX    | End of Text           | Text       | None                             | II    |
-| 0x04 | 4   | EOT    | End of Transmission   | Structural | None                             | II    |
-| 0x05 | 5   | ENQ    | Reserved              | -          | -                                | III   |
-| 0x06 | 6   | ACK    | Reserved              | -          | -                                | III   |
-| 0x07 | 7   | BEL    | Reserved (Alert)      | -          | -                                | III   |
-| 0x08 | 8   | BS     | Reserved (Backspace)  | -          | -                                | III   |
-| 0x09 | 9   | HT     | Horizontal Tab        | Text       | None                             | II    |
-| 0x0A | 10  | LF     | Line Feed             | Text       | None                             | II    |
-| 0x0B | 11  | VT     | Paragraph Break       | Text       | None                             | II    |
-| 0x0C | 12  | FF     | Page Break            | Text       | None                             | II    |
-| 0x0D | 13  | CR     | Carriage Return       | Text       | None                             | II    |
-| 0x0E | 14  | SO     | Link Start            | Text       | [Type:1][Len:1][Target:N]        | II    |
-| 0x0F | 15  | SI     | Link End              | Text       | None                             | II    |
-| 0x10 | 16  | DLE    | Data Escape           | Text       | [Len:2 LE][Raw data:N]           | II    |
-| 0x11 | 17  | DC1    | Apply Text Style      | Text       | [Index:1]                        | II    |
-| 0x12 | 18  | DC2    | Apply Container Style | Text       | [Index:1]                        | II    |
-| 0x13 | 19  | DC3    | Apply Table Style     | Text       | [Index:1]                        | II    |
-| 0x14 | 20  | DC4    | End Style / Pop       | Text       | None                             | II    |
-| 0x15 | 21  | NAK    | Element ID            | Text       | [ID:1]                           | II    |
-| 0x16 | 22  | SYN    | Insert Image          | Text       | [ImageDefIndex:1]                | II    |
-| 0x17 | 23  | ETB    | End of Block          | Text       | None                             | II    |
-| 0x18 | 24  | CAN    | Reserved (Hide/Show)  | -          | -                                | III   |
-| 0x19 | 25  | EM     | Start Item Block      | Text       | [Type:1][StyleIndex:1]           | II    |
-| 0x1A | 26  | SUB    | AI Prompt             | Text       | [Type:1][Len:2 LE][UTF-8:N]     | II    |
-| 0x1B | 27  | ESC    | Escape (Extended Cmd) | Both       | [Code:1][Payload:variable]       | III   |
-| 0x1C | 28  | FS     | File Separator        | Structural | None                             | II    |
-| 0x1D | 29  | GS     | Group Separator       | Structural | None                             | II    |
-| 0x1E | 30  | RS     | Record Separator      | Structural | None                             | II    |
-| 0x1F | 31  | US     | Unit Separator        | Text       | None                             | II    |
+| Hex  | Dec | ASCII  | CBDF Name             | Command               | Payload                          | Phase |
+|------|-----|--------|-----------------------|-----------------------|----------------------------------|-------|
+| 0x00 | 0   | NUL    | CBDF_NOP              | No Operation / Padding| None                             | II    |
+| 0x01 | 1   | SOH    | CBDF_SUBJECT_START    | Start of Heading      | None                             | II    |
+| 0x02 | 2   | STX    | CBDF_TEXT_START        | Start of Text         | None                             | II    |
+| 0x03 | 3   | ETX    | CBDF_TEXT_END          | End of Text           | None                             | II    |
+| 0x04 | 4   | EOT    | CBDF_DOC_END           | End of Transmission   | None                             | II    |
+| 0x05 | 5   | ENQ    | CBDF_RESERVED_05       | Reserved              | -                                | III   |
+| 0x06 | 6   | ACK    | CBDF_RESERVED_06       | Reserved              | -                                | III   |
+| 0x07 | 7   | BEL    | CBDF_RESERVED_ALERT    | Reserved (Alert)      | -                                | III   |
+| 0x08 | 8   | BS     | CBDF_RESERVED_BKSP     | Reserved (Backspace)  | -                                | III   |
+| 0x09 | 9   | HT     | CBDF_TAB               | Horizontal Tab        | None                             | II    |
+| 0x0A | 10  | LF     | CBDF_LINE_BREAK        | Line Feed             | None                             | II    |
+| 0x0B | 11  | VT     | CBDF_PARA_BREAK        | Paragraph Break       | None                             | II    |
+| 0x0C | 12  | FF     | CBDF_PAGE_BREAK        | Page Break            | None                             | II    |
+| 0x0D | 13  | CR     | CBDF_CARRIAGE_RETURN   | Carriage Return       | None                             | II    |
+| 0x0E | 14  | SO     | CBDF_LINK_START        | Link Start            | [Type:1][Len:1][Target:N]        | II    |
+| 0x0F | 15  | SI     | CBDF_LINK_END          | Link End              | None                             | II    |
+| 0x10 | 16  | DLE    | CBDF_DATA_ESCAPE       | Data Escape           | [Len:2 LE][Raw data:N]           | II    |
+| 0x11 | 17  | DC1    | CBDF_STYLE_TEXT        | Apply Text Style      | [Index:1]                        | II    |
+| 0x12 | 18  | DC2    | CBDF_STYLE_CONTAINER   | Apply Container Style | [Index:1]                        | II    |
+| 0x13 | 19  | DC3    | CBDF_STYLE_TABLE       | Apply Table Style     | [Index:1]                        | II    |
+| 0x14 | 20  | DC4    | CBDF_STYLE_END         | End Style / Pop       | None                             | II    |
+| 0x15 | 21  | NAK    | CBDF_ELEMENT_ID        | Element ID            | [ID:1]                           | II    |
+| 0x16 | 22  | SYN    | CBDF_IMAGE             | Insert Image          | [ImageDefIndex:1]                | II    |
+| 0x17 | 23  | ETB    | CBDF_BLOCK_END         | End of Block          | None                             | II    |
+| 0x18 | 24  | CAN    | CBDF_RESERVED_HIDE     | Reserved (Hide/Show)  | -                                | III   |
+| 0x19 | 25  | EM     | CBDF_ITEM_BLOCK        | Start Item Block      | [Type:1][StyleIndex:1]           | II    |
+| 0x1A | 26  | SUB    | CBDF_AI_PROMPT         | AI Prompt             | [Type:1][Len:2 LE][UTF-8:N]     | II    |
+| 0x1B | 27  | ESC    | CBDF_ESCAPE            | Escape (Extended Cmd) | [Code:1][Payload:variable]       | III   |
+| 0x1C | 28  | FS     | CBDF_SECTION_SEP       | File Separator        | None                             | II    |
+| 0x1D | 29  | GS     | CBDF_GROUP_SEP         | Group Separator       | None                             | II    |
+| 0x1E | 30  | RS     | CBDF_RECORD_SEP        | Record Separator      | None                             | II    |
+| 0x1F | 31  | US     | CBDF_UNIT_SEP          | Unit Separator        | None                             | II    |
 
 
 3. DETAILED COMMAND SPECIFICATIONS
@@ -547,6 +547,104 @@ The remaining printable UTF-8 bytes are the readable text.
   e) Data Escape (0x10 DLE): Includes 2-byte LE length prefix so the parser
      knows exactly how many bytes to skip. Without a length, the parser
      cannot resume command interpretation.
+
+7. C ENUMERATION
+================================================================================
+
+The following enum can be used directly in C parser/serializer code. It maps
+human-readable CBDF command names to their byte values, so developers never
+need to remember hex codes or ASCII symbols.
+
+  /**
+   * cbdf_cmd_t - CBDF control character command codes.
+   *
+   * These are the 32 ASCII control characters (0x00-0x1F) repurposed
+   * as CBDF inline commands and structural separators.
+   *
+   * Usage: if (byte == CBDF_STYLE_TEXT) { index = next_byte(); ... }
+   */
+  typedef enum {
+      /* -- Padding & Terminators -- */
+      CBDF_NOP              = 0x00,  /* No operation / alignment padding      */
+      CBDF_SUBJECT_START    = 0x01,  /* Styled subject begins (inside STX)    */
+      CBDF_TEXT_START        = 0x02,  /* Start of text body                    */
+      CBDF_TEXT_END          = 0x03,  /* End of text body (validation marker)  */
+      CBDF_DOC_END           = 0x04,  /* End of document                       */
+
+      /* -- Reserved for Phase III -- */
+      CBDF_RESERVED_05       = 0x05,  /* Future: interactive resource request  */
+      CBDF_RESERVED_06       = 0x06,  /* Future: interactive acknowledgment    */
+      CBDF_RESERVED_ALERT    = 0x07,  /* Future: client alert / sound          */
+      CBDF_RESERVED_BKSP     = 0x08,  /* Future: typing / animation effect     */
+
+      /* -- Whitespace (preserved in plain-text extraction) -- */
+      CBDF_TAB               = 0x09,  /* Horizontal tab                        */
+      CBDF_LINE_BREAK        = 0x0A,  /* Line feed (Unix line break)           */
+      CBDF_PARA_BREAK        = 0x0B,  /* Paragraph break (extra spacing)       */
+      CBDF_PAGE_BREAK        = 0x0C,  /* Page break / new page                 */
+      CBDF_CARRIAGE_RETURN   = 0x0D,  /* Carriage return (Windows line break)  */
+
+      /* -- Links -- */
+      CBDF_LINK_START        = 0x0E,  /* Hyperlink start: [Type][Len][Target]  */
+      CBDF_LINK_END          = 0x0F,  /* Hyperlink end                         */
+
+      /* -- Data -- */
+      CBDF_DATA_ESCAPE       = 0x10,  /* Raw binary data: [Len:2 LE][Data]     */
+
+      /* -- Style Application -- */
+      CBDF_STYLE_TEXT        = 0x11,  /* Apply text style: [Index]             */
+      CBDF_STYLE_CONTAINER   = 0x12,  /* Apply container style: [Index]        */
+      CBDF_STYLE_TABLE       = 0x13,  /* Apply table style: [Index]            */
+      CBDF_STYLE_END         = 0x14,  /* Pop style stack / revert              */
+
+      /* -- Elements -- */
+      CBDF_ELEMENT_ID        = 0x15,  /* Assign stable ID: [ID]                */
+      CBDF_IMAGE             = 0x16,  /* Insert image: [ImageDefIndex]         */
+      CBDF_BLOCK_END         = 0x17,  /* Close current block element           */
+
+      /* -- Reserved for Phase III -- */
+      CBDF_RESERVED_HIDE     = 0x18,  /* Future: initially hidden / toggle     */
+
+      /* -- Structured Content -- */
+      CBDF_ITEM_BLOCK        = 0x19,  /* List/nav/etc: [Type][StyleIndex]      */
+      CBDF_AI_PROMPT         = 0x1A,  /* AI prompt: [Type][Len:2 LE][UTF-8]   */
+
+      /* -- Reserved for Phase III -- */
+      CBDF_ESCAPE            = 0x1B,  /* Extended commands: [Code][Payload]    */
+
+      /* -- Structural Separators -- */
+      CBDF_SECTION_SEP       = 0x1C,  /* Between major sections (FS)           */
+      CBDF_GROUP_SEP         = 0x1D,  /* Between style sub-tables (GS)         */
+      CBDF_RECORD_SEP        = 0x1E,  /* Between records / table rows (RS)     */
+      CBDF_UNIT_SEP          = 0x1F   /* Between items in a list/nav (US)      */
+  } cbdf_cmd_t;
+
+
+  /* ----- Link types (payload of CBDF_LINK_START) ----- */
+  typedef enum {
+      CBDF_LINK_URL          = 0x00,  /* URL string                            */
+      CBDF_LINK_QWEB_PAGE    = 0x01,  /* QWeb page ID                          */
+      CBDF_LINK_MAILBOX      = 0x02,  /* Mailbox address (7 bytes)             */
+      CBDF_LINK_ACTION       = 0x03   /* Logic section action trigger           */
+  } cbdf_link_type_t;
+
+
+  /* ----- Item block types (payload of CBDF_ITEM_BLOCK) ----- */
+  typedef enum {
+      CBDF_ITEM_UNORDERED    = 0x00,  /* Unordered list (bullets)              */
+      CBDF_ITEM_ORDERED      = 0x01,  /* Ordered list (numbered)               */
+      CBDF_ITEM_NAV          = 0x02,  /* Navigation bar                        */
+      CBDF_ITEM_DEFINITION   = 0x03   /* Definition list (term/value pairs)    */
+  } cbdf_item_type_t;
+
+
+  /* ----- AI prompt types (payload of CBDF_AI_PROMPT) ----- */
+  typedef enum {
+      CBDF_AI_STYLE          = 0x00,  /* Generate a visual style               */
+      CBDF_AI_IMAGE          = 0x01,  /* Generate an image                     */
+      CBDF_AI_LAYOUT         = 0x02   /* Modify page layout                    */
+  } cbdf_ai_type_t;
+
 
 ================================================================================
 END OF SPECIFICATION
