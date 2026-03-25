@@ -78,6 +78,24 @@ layouts. Each layout defines the arrangement of top-level panels.
 3. SUB-TABLE HEADER BYTE
 ================================================================================
 
+A note about "tiering"
+In this spec, "tiering" means that a style record can have different sizes depending on how many properties you need.
+
+  Think of it like ordering a burger: small, medium, or large. You don't pay for the large if you only need the small.
+
+  Example with Text Styles:
+
+  - Base tier (8 bytes): Font, size, bold/italic flags, text color, background color. This covers 90% of use cases.
+  - Extended tier (12 bytes): Everything in base PLUS text shadow, letter spacing, line height. For documents that need more control.
+  - Rare tier (16 bytes): Everything in extended PLUS font effects (flames, glow, etc.), text direction (RTL), word spacing. Only for heavily styled
+  documents.
+
+  The key rule: ALL text styles in a document use the SAME tier. If even one style needs a shadow, then ALL text styles in that document are extended tier (12 bytes each). This is signaled by the 2-bit tier field in the sub-table header byte.
+
+  This saves bytes because most simple emails only need base tier styles. A plain email with 3 text styles uses 3 x 8 = 24 bytes for text styling. If we forced the rare tier for everyone, it would be 3 x 16 = 48 bytes -- double the size for properties nobody used.
+
+  The trade-off: if you have 10 simple styles and 1 style that needs a shadow, all 11 become extended tier. You "waste" 4 bytes on each of the 10 simple ones. But this is still better than per-record variable sizing, which makes parsing much harder.
+
 Each sub-table (after the layout byte and background style) begins with a
 1-byte header:
 
