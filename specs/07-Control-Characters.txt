@@ -54,7 +54,7 @@ The remaining printable UTF-8 bytes are the readable text.
 | 0x13 | 19  | DC3    | Apply Table Style     | Text       | [Index:1]                        | II    |
 | 0x14 | 20  | DC4    | End Style / Pop       | Text       | None                             | II    |
 | 0x15 | 21  | NAK    | Element ID            | Text       | [ID:1]                           | II    |
-| 0x16 | 22  | SYN    | Insert Image          | Text       | [ResourceID:1]                   | II    |
+| 0x16 | 22  | SYN    | Insert Image          | Text       | [ImageDefIndex:1]                | II    |
 | 0x17 | 23  | ETB    | End of Block          | Text       | None                             | II    |
 | 0x18 | 24  | CAN    | Reserved (Hide/Show)  | -          | -                                | III   |
 | 0x19 | 25  | EM     | Start Item Block      | Text       | [Type:1][StyleIndex:1]           | II    |
@@ -314,15 +314,21 @@ The remaining printable UTF-8 bytes are the readable text.
 --- 0x16 SYN: Insert Image ---
 
   Purpose: Inserts an image at the current position in the text flow. The
-  image is identified by its Resource ID (from the Resources section) or
-  by an image definition index (from the Image Definitions sub-table in
-  the Styles section).
+  image is identified by an Image Definition index (from the Image
+  Definitions sub-table in the Styles section). The Image Definition
+  record contains the Resource ID, width, height, fit mode, alignment,
+  and border style -- everything needed to display the image.
 
-  Payload: [Resource ID: 1 byte]
-  The Resource ID matches a resource in the Resources section. If the
-  resource is not available (section skipped or resource stripped), the
-  renderer uses the width/height from the image definition in the Styles
-  section to show a placeholder or reflow text.
+  Payload: [Image Definition Index: 1 byte]
+  The index references the Image Definitions sub-table in the Styles
+  section (0-based). The Image Definition then points to a Resource ID
+  in the Resources section for the actual binary data.
+
+  Indirection chain: SYN [index] -> Image Definition -> Resource ID -> data
+
+  If the resource is not available (section skipped or resource stripped),
+  the renderer uses the width/height from the Image Definition to show a
+  placeholder or reflow text.
 
   Context: Text section.
 

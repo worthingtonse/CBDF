@@ -44,7 +44,7 @@ which control codes have payloads and how long they are:
   0x12 | 1 byte (style index)
   0x13 | 1 byte (style index)
   0x15 | 1 byte (element ID), or 3 if ID=0xFF
-  0x16 | 1 byte (resource ID)
+  0x16 | 1 byte (image definition index)
   0x19 | 2 bytes (type + style index)
   0x1A | 1 + 2 + N bytes (type + length LE + prompt)
   0x1B | 1 + variable (Phase III; skip code byte)
@@ -166,14 +166,18 @@ which control codes have payloads and how long they are:
 ------------
 
   Insert image at current position:
-    [SYN resource_id]
+    [SYN image_def_index]
 
-  The resource_id matches a Resource ID in the Resources section.
-  The image's display properties (size, fit, alignment) come from the
-  Image Definitions sub-table in the Styles section.
+  The index references an Image Definition in the Styles section's Image
+  Definitions sub-table. The Image Definition contains:
+    - Resource ID (points to binary data in Resources section)
+    - Width and Height (for sizing and placeholders)
+    - Fit mode and alignment
+    - Border style reference
 
   Example:
     Here is our logo: [SYN 0x01] And here is more text.
+    (Inserts image defined by Image Definition #1 in the Styles section)
 
 
 4G. AI PROMPTS
@@ -198,7 +202,7 @@ which control codes have payloads and how long they are:
 
   Example:
     [NAK 0x01] [DC2 0x05] This container has ID=1 [ETB]
-    [NAK 0x02] [SYN 0x03]  (image with ID=2)
+    [NAK 0x02] [SYN 0x03]  (image definition #3, element ID=2)
 
   Extended ID (for documents with >254 elements):
     [NAK 0xFF] [id_lo] [id_hi]  (2-byte LE extended ID)

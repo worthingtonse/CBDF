@@ -69,15 +69,17 @@ Resources are referenced in two places:
      points to the resource containing the image data.
 
   B. Text section (SYN command 0x16):
-     [SYN resource_id] inserts the image at the current text position.
-     The SYN resource_id matches the Resource ID in this section.
+     [SYN image_def_index] inserts the image at the current text position.
+     The index references an Image Definition in the Styles section, which
+     in turn contains the Resource ID for the binary data.
 
-  The indirection is: Text -> Image Definition -> Resource
-    SYN references an image definition (by its sub-table index).
-    The image definition contains the Resource ID and display parameters.
+  The indirection chain is:
+    SYN [image_def_index] -> Image Definition -> Resource ID -> binary data
 
-  Alternatively, SYN can reference a Resource ID directly for simple
-  inline images without custom display parameters.
+  SYN always references an Image Definition, never a Resource ID directly.
+  This ensures the renderer always has access to the display properties
+  (width, height, fit mode, alignment, border) stored in the Image
+  Definition, even when the resource binary data is unavailable.
 
 
 4. MISSING RESOURCE BEHAVIOR
