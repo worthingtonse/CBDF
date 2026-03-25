@@ -174,7 +174,10 @@ contained "envelope" for inbox display.
   36  | Preview Text      | Variable   | First ~100 chars of body         |
   37  | Subject Style ID  | 1          | Text style index for subject     |
 
-  Key IDs 38-255 are reserved for future use.
+  38  | Semantic Model  | Variable   | Model ID + version for semantic enc.|
+  39  | Semantic Flags  | 1          | Bit 0: lossy OK, Bit 1: exact match |
+
+  Key IDs 40-255 are reserved for future use.
 
   * = Required for email documents.
 
@@ -224,7 +227,121 @@ When meta key 31 (Compression Type) is present and non-zero:
     2 = LZ4
     3 = Zstandard (Zstd)
     4 = Brotli
-    5-255 = Reserved
+    5 = Semantic encoding (see Section 6B)
+    6-255 = Reserved
+
+
+6B. SEMANTIC ENCODING (Compression Type 5)
+================================================================================
+
+Semantic encoding replaces the Text section's UTF-8 content with a compact
+latent-space representation that an AI model can reconstruct into equivalent
+text. Instead of transmitting the actual words, the sender encodes the
+MEANING into a small token sequence or embedding vector. The receiver's
+identical model decodes this back into natural language text.
+
+This can achieve dramatic size reductions for long documents (e.g., a 10KB
+email body could become a few hundred bytes) but is inherently LOSSY -- the
+reconstructed text conveys the same meaning but may use different words.
+
+6B1. REQUIREMENTS
+-------------------
+
+  a) The sender and receiver MUST have the exact same model (same ID and
+     version). Even minor model updates change the latent space, which can
+     produce incorrect or garbled output.
+
+  b) The meta section MUST include:
+     - Key 31 (Compression Type) = 5 (semantic encoding)
+     - Key 38 (Semantic Model): Identifies the model. Format:
+         [Model ID: 4 bytes] [Version Hash: 16 bytes]
+       The Model ID is a registered identifier for the AI model family.
+       The Version Hash is an MD5 or truncated SHA-256 of the exact model
+       weights/checkpoint, ensuring byte-level model matching.
+     - Key 36 (Preview Text): REQUIRED when semantic encoding is used.
+       This provides a plain UTF-8 fallback for clients that do not have
+       the matching model. Without Preview Text, a non-matching client
+       has nothing to display.
+
+  c) The meta section SHOULD include:
+     - Key 35 (AI Summary): A human-readable summary as additional fallback.
+     - Key 39 (Semantic Flags):
+         Bit 0: Lossy OK (1 = approximate reconstruction acceptable;
+                0 = exact semantic match required)
+         Bit 1: Exact words matter (1 = the specific wording is important,
+                e.g., legal/contractual text; 0 = meaning is sufficient)
+         Bits 2-7: Reserved
+
+6B2. DOCUMENT STRUCTURE WITH SEMANTIC ENCODING
+-------------------------------------------------
+
+  [Pair Count: 2 LE] [Meta KV pairs (including model ID and preview text)]
+  0x1C [Styles Length: 4 LE] [Styles section -- normal, not semantically encoded]
+  0x1C [Semantic Payload Length: 4 LE] [Semantic tokens/embedding]
+  0x1C [Resources Length: 4 LE] [Resources -- normal]
+  0x1C [Logic]
+
+  The Styles section is NOT semantically encoded (it's already compact
+  binary). Only the Text section is replaced with semantic tokens.
+
+  The semantic payload format is model-specific. The CBDF spec does not
+  define the internal structure of the semantic tokens -- that is
+  determined by the model identified in meta key 38.
+
+6B3. RECEIVER BEHAVIOR
+-------------------------
+
+  If the receiver has the matching model:
+    1. Read meta (including model ID and version hash).
+    2. Verify the local model matches (same ID and version hash).
+    3. Parse styles section normally.
+    4. Read semantic payload.
+    5. Decode semantic payload using the matching model -> produces UTF-8 text.
+    6. Render the decoded text with styles applied.
+
+  If the receiver does NOT have the matching model:
+    1. Read meta.
+    2. Display Preview Text (key 36) and/or AI Summary (key 35) as the
+       message body. These are always plain UTF-8 in the meta section.
+    3. Optionally display a notice: "This message uses semantic encoding.
+       Install [model name] for full rendering."
+    4. The Styles section and Resources section are still fully usable --
+       the client can render a styled version of the Preview Text.
+
+6B4. WHEN TO USE SEMANTIC ENCODING
+-------------------------------------
+
+  GOOD candidates:
+    - Long conversational emails (high redundancy, meaning matters more
+      than exact words)
+    - Newsletter content (summaries, descriptions)
+    - Automated notifications (system-generated text)
+    - Bulk messages to groups (where bandwidth savings are multiplied)
+
+  BAD candidates:
+    - Legal documents, contracts (exact wording matters)
+    - Technical specifications (precision required)
+    - Poetry, literature (artistic word choice matters)
+    - Short messages (overhead of model ID exceeds savings)
+    - Messages to recipients who may not have the model
+
+  The Semantic Flags byte (key 39) communicates the sender's intent:
+    - Lossy OK + words don't matter = casual conversation
+    - Lossy OK + words matter = unusual (sender accepts rewording of
+      important text -- probably a mistake)
+    - Not lossy OK = the receiver should warn if it cannot guarantee
+      exact reconstruction
+
+6B5. FUTURE CONSIDERATIONS
+-----------------------------
+
+  - A registry of standardized Semantic Model IDs will be needed as this
+    feature matures. This registry is outside the CBDF spec.
+  - Hybrid encoding (some paragraphs semantic, some literal) may be added
+    in Phase III using control codes to switch between modes.
+  - Semantic encoding of the Styles section itself (e.g., "make it look
+    professional") overlaps with the AI prompt feature (SUB 0x1A) and is
+    not duplicated here.
 
 
 7. DEFAULT STYLE SETS
