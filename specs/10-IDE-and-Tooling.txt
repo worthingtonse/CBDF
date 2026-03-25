@@ -1,0 +1,399 @@
+================================================================================
+  CBDF BRAINSTORMING: IDE AND TOOLING VISION
+  Document: 10-IDE-and-Tooling
+  Status: Brainstorming (not a formal spec)
+  Date: 2026-03-25
+================================================================================
+
+1. OVERVIEW
+================================================================================
+
+This document captures the vision for CBDF development tools, including a
+visual IDE for creating CBDF documents and logic, a 3D code visualization
+environment, and the rendering architecture.
+
+These ideas are exploratory and will evolve. They are recorded here to
+guide future development phases.
+
+
+2. VISUAL IDE: THE CBDF EDITOR
+================================================================================
+
+2A. DESIGN PHILOSOPHY
+-----------------------
+
+The IDE should feel like GameMaker 2 meets Visual Studio's form designer:
+
+  - Document authors should NEVER see hex codes or raw bytes
+  - Logic creation uses visual blocks, not text code
+  - The event/condition/action model maps directly to a visual flow
+  - Heavy-lifting functions mean less code for the programmer
+  - Drag-and-drop for both layout and logic
+  - What you see is what the receiver sees (WYSIWYG for the document)
+
+The IDE generates the binary CBDF file silently. Authors work with visual
+representations; the IDE handles encoding.
+
+2B. IDE LAYOUT (four-panel design)
+------------------------------------
+
+  +------------------------------------------------------------------+
+  |  Toolbar: File, Edit, View, Insert, Logic, Preview, Export       |
+  +------------------------------------------------------------------+
+  |           |                              |                       |
+  | Element   |    Document Canvas           |   Properties Panel    |
+  | Tree      |    (WYSIWYG editor)          |   (selected element)  |
+  |           |                              |                       |
+  | - Page    |   +--------------------+     |   Font: Arial 12pt   |
+  |   - Header|   | Header    [nav]    |     |   Color: #FF0000     |
+  |   - Main  |   |----+------+-------|     |   Bold: [x]          |
+  |   - Footer|   | L  | Main | R     |     |   Style: #3          |
+  |           |   |    |      |       |     |   Layer: 1           |
+  | Layers:   |   |    | Hello|       |     |   Element ID: 5      |
+  |  [x] L0   |   |    | World|       |     |                      |
+  |  [x] L1   |   +----+------+-------|     |   Events:            |
+  |  [ ] L2   |   | Footer            |     |   [+ Add Event]      |
+  |           |   +--------------------+     |   > Click -> ...     |
+  |           |                              |   > Hover -> ...     |
+  +-----------+------------------------------+----------------------+
+  |                                                                  |
+  |  Logic Editor (GameMaker-style rule blocks)                      |
+  |                                                                  |
+  |  Element #5 "Signup Button"                                      |
+  |  +-- Event: CLICK ----------------------------------------+     |
+  |  |  +-- IF: input #7 is EMPTY                             |     |
+  |  |  |   +-> SHAKE element #7 (intensity: 5)               |     |
+  |  |  |   +-> SHOW element #8                               |     |
+  |  |  |   +-> SET_STYLE element #8 -> style #3 (red)        |     |
+  |  |  +-- ELSE (input #7 NOT EMPTY)                         |     |
+  |  |      +-> HIDE element #8                               |     |
+  |  |      +-> MODAL_OPEN layer #10 (fade: 300ms)            |     |
+  |  +--------------------------------------------------------+     |
+  |                                                                  |
+  +------------------------------------------------------------------+
+
+  See: images/07-ide-concept.svg for a visual rendering of this layout.
+
+2C. PANEL DESCRIPTIONS
+------------------------
+
+  ELEMENT TREE (left panel):
+    - Hierarchical view of all document elements
+    - Shows: page > panels > containers > text/images/tables
+    - Layer visibility toggles (checkboxes)
+    - Drag elements to reorder
+    - Right-click for context menu (add child, delete, duplicate)
+    - Each element shows its ELEMENT_ID badge
+
+  DOCUMENT CANVAS (center panel):
+    - WYSIWYG rendering of the CBDF document
+    - Click to select elements
+    - Drag to resize panels/containers
+    - Layout byte selector at top (dropdown of 256 layouts with previews)
+    - Rulers and guides for alignment
+    - Zoom controls
+    - Toggle: show element boundaries, show element IDs, show layers
+
+  PROPERTIES PANEL (right panel):
+    - Shows all properties of the selected element
+    - Style selection from dropdowns (references style sub-tables)
+    - Color picker (R5G6B5 palette with transparency codes highlighted)
+    - Font selector (scrollable list of 4096 fonts with previews)
+    - Font effect preview (real-time preview of flames, glow, etc.)
+    - Element ID assignment
+    - Layer assignment
+    - Event list for the selected element (expandable)
+
+  LOGIC EDITOR (bottom panel):
+    - GameMaker 2 inspired event/action editor
+    - Each element's events are listed as expandable blocks
+    - Events show as colored headers (blue for click, green for hover, etc.)
+    - Conditions show as orange diamond-shaped gates
+    - Actions show as rounded rectangles with icons
+    - Drag actions from a palette on the right
+    - Drag to reorder actions
+    - Visual connectors show flow (like Unreal Blueprint wires)
+    - Real-time validation: red border on invalid rules
+
+2D. LOGIC EDITOR BLOCK TYPES
+-------------------------------
+
+  Events (blue blocks, one per rule):
+    +---[CLICK]---+  +---[HOVER IN]---+  +---[TIMER 2000ms]---+
+    |  on #5      |  |  on #3         |  |  one-shot           |
+    +-------------+  +----------------+  +---------------------+
+
+  Conditions (orange diamonds):
+        / \
+       / ? \      "Is element #7 empty?"
+      / CND \
+     /  EMPTY \
+    +---------+
+    | elem #7 |
+    +---------+
+
+  Actions (green rounded rectangles):
+    +---------------------+
+    |  SHOW element #8    |
+    +---------------------+
+    +---------------------+
+    |  SHAKE #7 (int: 5)  |
+    +---------------------+
+    +---------------------+
+    |  FADE_IN #10 300ms  |
+    +---------------------+
+
+  Flow: Event -> [Condition?] -> Action -> Action -> ...
+  Visual wires connect them top-to-bottom.
+
+2E. DRAG-AND-DROP WORKFLOW
+----------------------------
+
+  Creating a "click to show modal" interaction:
+
+  1. Select the button element on the canvas
+  2. In the Logic Editor, click [+ Add Event]
+  3. From the event palette, drag "CLICK" onto the element's event list
+  4. From the action palette, drag "MODAL_OPEN" into the event
+  5. A dialog asks: "Which layer?" -- select layer #10 from dropdown
+  6. A dialog asks: "Fade duration?" -- slide to 300ms
+  7. Done. The IDE generates: 01 05 01 30 0A 1E (6 bytes)
+
+  The author never sees bytes. The IDE preview shows the modal animating.
+
+
+3. AI INTEGRATION IN THE IDE
+================================================================================
+
+  3A. NATURAL LANGUAGE -> LOGIC
+  --------------------------------
+  A chat panel in the IDE where the author types:
+
+    Author: "When the user clicks the signup button, check if the email
+             field is empty. If it is, shake the email input and show
+             the error message in red. Otherwise, open the success popup."
+
+    AI generates the visual blocks and places them in the Logic Editor.
+    The author can review, modify, and approve before the IDE encodes.
+
+  3B. STYLE GENERATION
+  -----------------------
+  Author right-clicks on an element and selects "AI Style":
+
+    Author: "Make this look like a cloud with blue sky gradients"
+
+    AI generates a style record and previews it on the canvas.
+    The author can tweak parameters or regenerate.
+
+  3C. LAYOUT SUGGESTIONS
+  -------------------------
+  Author describes the page:
+
+    Author: "I need a newsletter layout with a header, two-column body,
+             and a footer with social links"
+
+    AI selects the layout byte (0x13 = header + footer + 2 columns),
+    creates appropriate panel styles, and populates the canvas.
+
+  3D. IMAGE GENERATION
+  ----------------------
+  Author inserts an AI image prompt:
+
+    Author: "A friendly robot mascot waving, cartoon style, transparent bg"
+
+    The IDE's AI generates the image, embeds it in the Resources section,
+    and creates an Image Definition in the Styles section.
+
+
+4. 3D CODE VISUALIZATION
+================================================================================
+
+An exploratory/debugging tool that renders a CBDF document as an
+explorable 3D space. Built with QT's 3D module on top of Clay layout.
+
+  4A. THE METAPHOR
+  ------------------
+  Each CBDF document is a "building" you can walk through or fly over:
+
+    - META SECTION = "Lobby"
+      Walls display: subject, sender, date, AI summary
+      A reception desk shows the key/value pairs
+      The version badge glows above the entrance
+
+    - STYLES SECTION = "Design Studio"
+      Shelves of color swatches (R5G6B5 palette, browsable)
+      Font specimens on the walls (scrollable)
+      Style records displayed as recipe cards you can pick up and inspect
+      Sub-tables are rooms within the studio (text room, border room, etc.)
+
+    - TEXT SECTION = "Main Hall"
+      The actual document content rendered on the walls
+      Control codes are visible as glowing markers in the text
+      Elements have floating ID badges
+      Layers are literal layers of glass you can walk between
+      Click any element to see its style references highlighted
+
+    - RESOURCES SECTION = "Warehouse"
+      Images displayed as framed pictures on shelves
+      Each resource shows its ID, type, and size
+      Missing resources show as empty frames with "not downloaded" signs
+
+    - LOGIC SECTION = "Factory Floor"
+      Each rule is a machine on the factory floor
+      Event triggers are conveyor belts feeding inputs
+      Condition gates are checkpoints with green/red lights
+      Actions are robot arms that reach out and touch elements in the
+      Main Hall (visible through glass walls)
+      Active rules glow when executing
+      Timers are clock mechanisms with visible countdowns
+
+  4B. INTERACTION
+  -----------------
+    - Fly mode: WASD + mouse to navigate freely
+    - Click any element/rule/style to inspect it
+    - Click a "machine" (rule) on the factory floor -> zooms in to show
+      the rule's block diagram from the 2D IDE
+    - Click an element in the Main Hall -> highlights all rules that
+      reference it (factory machines light up)
+    - Click a style card in the Design Studio -> highlights all elements
+      using that style (they glow in the Main Hall)
+    - Time scrubber: replay the document's event sequence in slow motion
+      (see animations fire, rules execute, elements change)
+
+  4C. USE CASES
+  ---------------
+    - DEBUGGING: "Why doesn't my modal open?" -> fly to the factory floor,
+      find the rule, see the red condition gate blocking it
+    - EDUCATION: Students learn CBDF by walking through example documents
+    - PRESENTATIONS: Demonstrate the format to stakeholders with a
+      dramatic fly-through
+    - OPTIMIZATION: See which rules are most complex (biggest machines),
+      which styles are unused (dusty cards on shelves)
+
+
+5. RENDERING ARCHITECTURE
+================================================================================
+
+  5A. TECHNOLOGY STACK
+  ----------------------
+    - Layout engine: Clay (extremely fast 2D layout calculation)
+    - UI framework: QT (cross-platform, GPU-accelerated rendering)
+    - 3D visualization: QT 3D module (for the code visualization tool)
+    - Logic interpreter: C (matching the parser/serializer)
+    - IDE framework: QT Widgets or QT Quick/QML
+
+  5B. CLAY + QT PIPELINE
+  -------------------------
+    1. CBDF parser reads the binary document (C)
+    2. Style tables are loaded into memory (zero-copy where possible)
+    3. Clay receives the layout byte and element tree
+    4. Clay calculates positions, sizes, and overflow for all elements
+    5. QT renders the calculated layout with styles applied
+    6. Logic interpreter registers event handlers on rendered elements
+    7. User interactions trigger logic rules
+    8. Rules modify the element tree -> Clay recalculates -> QT re-renders
+
+  5C. THREADING MODEL
+  ----------------------
+  The rendering pipeline uses three threads:
+
+    Thread 1: MAIN/UI thread
+      - QT event loop
+      - User input handling
+      - Rendering (QT paints)
+
+    Thread 2: LOGIC thread
+      - Logic interpreter event loop
+      - Rule evaluation and action dispatch
+      - Timer/interval management
+      - Sends "element changed" messages to the UI thread
+
+    Thread 3: RESOURCE LOADER thread
+      - Streams the Resources section
+      - Decodes images
+      - Sends "resource ready" messages to the UI thread
+
+  If built on BEAM/Elixir instead of C:
+    - Each logic rule is a lightweight BEAM process
+    - No explicit threading needed -- the BEAM scheduler handles it
+    - Message passing between rule processes is natural
+    - Crash isolation: one buggy rule doesn't take down others
+    - Hot code reload: update logic without restarting the document
+
+  5D. ANIMATION SYSTEM
+  ----------------------
+  Animations are handled by the renderer, not the logic interpreter:
+
+    1. Logic rule fires ACT_FADE_IN(element #10, 300ms)
+    2. Logic interpreter sends: {animate, elem_10, fade_in, 300} to renderer
+    3. Renderer adds to animation queue
+    4. On each frame (60fps): renderer interpolates opacity
+    5. After 300ms: renderer sends "animation complete" back to logic
+    6. Logic interpreter may fire next action in the chain
+
+  This keeps the logic interpreter simple (it doesn't track frames)
+  and lets the renderer batch animations efficiently.
+
+
+6. DEVELOPMENT PHASES
+================================================================================
+
+  Phase III (Logic interpreter):
+    - Implement the opcode interpreter in C
+    - Event registration and dispatch
+    - Condition evaluation
+    - Action execution (element manipulation, style switching)
+    - Timer/interval management
+    - String/pattern/link table parsing
+    - Security sandbox enforcement
+    - Unit tests for all opcodes
+
+  Phase III.5 (Basic 2D IDE):
+    - QT-based document editor
+    - Canvas with WYSIWYG layout editing
+    - Element tree browser
+    - Properties panel with style/font/color pickers
+    - Logic editor with GameMaker-style event/action blocks
+    - Drag-and-drop action palette
+    - Binary CBDF export
+    - Import/open existing CBDF files
+    - Preview mode (renders the document as the receiver would see it)
+
+  Phase IV (Advanced IDE + 3D):
+    - AI chat panel for natural language -> logic generation
+    - AI style generation with real-time preview
+    - 3D code visualization tool
+    - Performance profiler (which rules are slow, which styles are unused)
+    - Collaborative editing (multiple authors, CRDT-based)
+    - Template marketplace (shareable style sets and layout templates)
+    - Animation timeline editor (keyframe-based, like After Effects)
+
+  Phase V (Advanced forms + SVG):
+    - Binary SVG format for precise form rendering
+    - PowerPoint-style animations for form transitions
+    - Rich input types beyond HTML
+    - Form builder drag-and-drop tool
+    - Form validation visual editor
+
+
+7. COMPARISON WITH EXISTING TOOLS
+================================================================================
+
+  Tool              | What we borrow                | What we improve
+  ------------------|-------------------------------|---------------------------
+  Visual Studio     | Form designer, property panel | No code required for UI
+  GameMaker 2       | Event/action model, visual    | Domain-specific for docs,
+                    | logic editing                 | not games
+  Scratch           | Block-based programming       | Real production output,
+                    | for non-programmers           | not educational only
+  Unreal Blueprints | Node/wire visual scripting    | Simpler (50 opcodes vs
+                    |                               | thousands of nodes)
+  PowerPoint        | Animation timeline,           | Interactive + logic, not
+                    | transition effects            | just presentation
+  Figma/Sketch      | Design tool UX, canvas        | Outputs binary format,
+                    |                               | not just visuals
+
+
+================================================================================
+END OF BRAINSTORMING DOCUMENT
+================================================================================
