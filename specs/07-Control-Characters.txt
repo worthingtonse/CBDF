@@ -69,7 +69,7 @@ The remaining printable UTF-8 bytes are the readable text.
 3. DETAILED COMMAND SPECIFICATIONS
 ================================================================================
 
---- 0x00 NUL: No Operation / Padding ---
+--- 0x00 NOP (NUL): No Operation / Padding ---
 
   Purpose: Ignored by the parser. Used for byte alignment in style records
   or as filler in fixed-size fields.
@@ -77,7 +77,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: May appear anywhere. Always ignored.
 
 
---- 0x01 SOH: Start of Heading (Styled Subject) ---
+--- 0x01 SUBJECT_START (SOH): Styled Subject ---
 
   Purpose: Marks the beginning of the styled subject text within the Text
   section. Only meaningful when the document type is "email" (set in meta).
@@ -96,7 +96,7 @@ The remaining printable UTF-8 bytes are the readable text.
   of the plain text output.
 
 
---- 0x02 STX: Start of Text ---
+--- 0x02 TEXT_START (STX): Start of Text ---
 
   Purpose: Marks the beginning of the document body text. Mandatory in every
   document that has a Text section.
@@ -104,7 +104,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section. Appears once.
 
 
---- 0x03 ETX: End of Text ---
+--- 0x03 TEXT_END (ETX): End of Text ---
 
   Purpose: Marks the end of the document body text. Since each section has
   a 4-byte length prefix, ETX is technically redundant -- the length prefix
@@ -117,7 +117,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section.
 
 
---- 0x04 EOT: End of Transmission ---
+--- 0x04 DOC_END (EOT): End of Document ---
 
   Purpose: Explicit end-of-file marker. Optional -- the parser may also use
   the section length prefix or actual EOF to determine the end.
@@ -125,45 +125,45 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: After the last section.
 
 
---- 0x05 ENQ: Reserved (Phase III) ---
+--- 0x05 RESERVED_05 (ENQ): Reserved (Phase III) ---
 
   Possible future use: Interactive resource request from server.
   NOT functional in Phase II.
 
 
---- 0x06 ACK: Reserved (Phase III) ---
+--- 0x06 RESERVED_06 (ACK): Reserved (Phase III) ---
 
   Possible future use: Interactive acknowledgment / form response.
   NOT functional in Phase II.
 
 
---- 0x07 BEL: Reserved (Phase III) ---
+--- 0x07 RESERVED_ALERT (BEL): Reserved (Phase III) ---
 
   Possible future use: Client-side alert or notification sound.
   NOT functional in Phase II.
 
 
---- 0x08 BS: Reserved (Phase III) ---
+--- 0x08 RESERVED_BKSP (BS): Reserved (Phase III) ---
 
   Possible future use: Backspace for typing/animation effects in Logic.
   NOT functional in Phase II.
 
 
---- 0x09 HT: Horizontal Tab ---
+--- 0x09 TAB (HT): Horizontal Tab ---
 
   Purpose: Standard tab character. PRESERVED in plain-text extraction.
   Payload: None.
   Context: Text section.
 
 
---- 0x0A LF: Line Feed ---
+--- 0x0A LINE_BREAK (LF): Line Feed ---
 
   Purpose: Standard Unix line break. PRESERVED in plain-text extraction.
   Payload: None.
   Context: Text section.
 
 
---- 0x0B VT: Paragraph Break ---
+--- 0x0B PARA_BREAK (VT): Paragraph Break ---
 
   Purpose: Marks a semantic paragraph boundary. Renderers should insert
   vertical spacing (larger than a line break). Unlike LF which is a simple
@@ -173,7 +173,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Plain-text extraction: Stripped (replaced by double LF by convention).
 
 
---- 0x0C FF: Page Break ---
+--- 0x0C PAGE_BREAK (FF): Page Break ---
 
   Purpose: Starts a new rendering page or screen. Used in multi-page
   documents or long-form content.
@@ -181,7 +181,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section.
 
 
---- 0x0D CR: Carriage Return ---
+--- 0x0D CARRIAGE_RETURN (CR): Carriage Return ---
 
   Purpose: Standard Windows line break component. PRESERVED in plain-text
   extraction. Typically paired with LF (CR+LF).
@@ -189,7 +189,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section.
 
 
---- 0x0E SO: Link Start ---
+--- 0x0E LINK_START (SO): Link Start ---
 
   Purpose: Marks the beginning of a hyperlink. The text between SO and SI
   (0x0F) is the visible link text.
@@ -209,14 +209,14 @@ The remaining printable UTF-8 bytes are the readable text.
     (Type=URL, Length=22, Target="https://example.com", Text="Click here")
 
 
---- 0x0F SI: Link End ---
+--- 0x0F LINK_END (SI): Link End ---
 
   Purpose: Marks the end of a hyperlink started by SO (0x0E).
   Payload: None.
   Context: Text section. Must be preceded by a matching SO.
 
 
---- 0x10 DLE: Data Escape ---
+--- 0x10 DATA_ESCAPE (DLE): Data Escape ---
 
   Purpose: Bypasses control character interpretation for a block of raw
   binary data. Used when binary content must appear inline in the text
@@ -231,7 +231,7 @@ The remaining printable UTF-8 bytes are the readable text.
   data should be in the Resources section.
 
 
---- 0x11 DC1: Apply Text Style ---
+--- 0x11 STYLE_TEXT (DC1): Apply Text Style ---
 
   Purpose: Switches the current text formatting to the specified style from
   the Text Styles sub-table in the Styles section.
@@ -245,7 +245,7 @@ The remaining printable UTF-8 bytes are the readable text.
     Normal text [DC1 0x02] Bold red text [DC4] Back to previous style
 
 
---- 0x12 DC2: Apply Container Style ---
+--- 0x12 STYLE_CONTAINER (DC2): Apply Container Style ---
 
   Purpose: Starts a new container (panel, div-equivalent) with the specified
   composite style from the Container Composite Styles sub-table.
@@ -258,7 +258,7 @@ The remaining printable UTF-8 bytes are the readable text.
     [DC2 0x01] Content inside container styled with composite style #1 [ETB]
 
 
---- 0x13 DC3: Apply Table Style ---
+--- 0x13 STYLE_TABLE (DC3): Apply Table Style ---
 
   Purpose: Starts a table with the specified style from the Table Styles
   sub-table. Table cells are separated by US (0x1F). Table rows are
@@ -281,7 +281,7 @@ The remaining printable UTF-8 bytes are the readable text.
   where it belongs and frees DC3 for the more commonly needed table command.
 
 
---- 0x14 DC4: End Style / Pop ---
+--- 0x14 STYLE_END (DC4): End Style / Pop ---
 
   Purpose: Reverts to the previous style on the style stack. Each DC1, DC2,
   or DC3 pushes a style; DC4 pops back to what was active before.
@@ -292,7 +292,7 @@ The remaining printable UTF-8 bytes are the readable text.
     [DC1 0x00] Default text [DC1 0x03] Highlighted text [DC4] Default again
 
 
---- 0x15 NAK: Element ID ---
+--- 0x15 ELEMENT_ID (NAK): Element ID ---
 
   Purpose: Assigns a stable, unique ID to the NEXT element in the text
   stream. The Logic section uses these IDs for CRUD operations (create,
@@ -311,7 +311,7 @@ The remaining printable UTF-8 bytes are the readable text.
     [NAK 0x02] [DC1 0x03] This text span has ID=2 [DC4]
 
 
---- 0x16 SYN: Insert Image ---
+--- 0x16 IMAGE (SYN): Insert Image ---
 
   Purpose: Inserts an image at the current position in the text flow. The
   image is identified by an Image Definition index (from the Image
@@ -333,7 +333,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section.
 
 
---- 0x17 ETB: End of Block ---
+--- 0x17 BLOCK_END (ETB): End of Block ---
 
   Purpose: Closes the current block-level element (container, table, nav
   bar, or item block). Pairs with DC2, DC3, or EM.
@@ -342,7 +342,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section.
 
 
---- 0x18 CAN: Reserved (Phase III) ---
+--- 0x18 RESERVED_HIDE (CAN): Reserved (Phase III) ---
 
   Possible future use: "Initially Hidden" -- element is parsed but not
   rendered until the Logic section or user action reveals it. Useful for
@@ -350,7 +350,7 @@ The remaining printable UTF-8 bytes are the readable text.
   NOT functional in Phase II.
 
 
---- 0x19 EM: Start Item Block ---
+--- 0x19 ITEM_BLOCK (EM): Start Item Block ---
 
   Purpose: Begins a structured item block (list, nav bar, or other
   repeating-item element). Items within the block are separated by
@@ -379,7 +379,7 @@ The remaining printable UTF-8 bytes are the readable text.
     [EM 0x00 0x00] First item [US] Second item [US] Third item [ETB]
 
 
---- 0x1A SUB: AI Prompt ---
+--- 0x1A AI_PROMPT (SUB): AI Prompt ---
 
   Purpose: Embeds an AI prompt that the RECEIVER's client evaluates to
   generate a style, image, or layout modification. This reduces document
@@ -404,7 +404,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Maximum prompt length: 65535 bytes (2-byte LE length field).
 
 
---- 0x1B ESC: Escape / Extended Commands (Phase III) ---
+--- 0x1B ESCAPE (ESC): Extended Commands (Phase III) ---
 
   Purpose: Reserved for future extended command sequences that go beyond
   the 32 control characters. When the 32 primary codes are insufficient,
@@ -418,7 +418,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Both structural and text.
 
 
---- 0x1C FS: File Separator ---
+--- 0x1C SECTION_SEP (FS): File Separator ---
 
   Purpose: Separates the major sections of a CBDF document.
   Document structure: [Meta] FS [Styles] FS [Text] FS [Resources] FS [Logic]
@@ -433,7 +433,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Exception: If the meta section contains an EOF flag, NO FS markers follow.
 
 
---- 0x1D GS: Group Separator ---
+--- 0x1D GROUP_SEP (GS): Group Separator ---
 
   Purpose: Separates style sub-tables within the Styles section.
   Each GS marks the boundary between different style categories
@@ -444,7 +444,7 @@ The remaining printable UTF-8 bytes are the readable text.
   Empty sub-tables: GS immediately followed by the next GS (or FS).
 
 
---- 0x1E RS: Record Separator ---
+--- 0x1E RECORD_SEP (RS): Record Separator ---
 
   Purpose: Separates individual records within a style sub-table.
   Also used within the Text section to separate TABLE ROWS when inside
@@ -464,7 +464,7 @@ The remaining printable UTF-8 bytes are the readable text.
   it's inside a DC3 block) will never misinterpret RS.
 
 
---- 0x1F US: Unit Separator ---
+--- 0x1F UNIT_SEP (US): Unit Separator ---
 
   Purpose: Separates items within a structured item block (started by EM
   0x19). Used for nav bar items, list items, and table cells.
@@ -477,19 +477,24 @@ The remaining printable UTF-8 bytes are the readable text.
 ================================================================================
 
   Phase II (26 active commands):
-    NUL, SOH, STX, ETX, EOT, HT, LF, VT, FF, CR, SO, SI, DLE,
-    DC1, DC2, DC3, DC4, NAK, SYN, ETB, EM, SUB, FS, GS, RS, US
+    NOP, SUBJECT_START, TEXT_START, TEXT_END, DOC_END,
+    TAB, LINE_BREAK, PARA_BREAK, PAGE_BREAK, CARRIAGE_RETURN,
+    LINK_START, LINK_END, DATA_ESCAPE,
+    STYLE_TEXT, STYLE_CONTAINER, STYLE_TABLE, STYLE_END,
+    ELEMENT_ID, IMAGE, BLOCK_END,
+    ITEM_BLOCK, AI_PROMPT,
+    SECTION_SEP, GROUP_SEP, RECORD_SEP, UNIT_SEP
 
   Phase III reserved (6 commands):
-    ENQ (interactive resource request)
-    ACK (interactive acknowledgment)
-    BEL (client alert/sound)
-    BS  (typing/animation effects)
-    CAN (initially hidden / show-hide toggle)
-    ESC (extended command sequences)
+    RESERVED_05    (0x05, interactive resource request)
+    RESERVED_06    (0x06, interactive acknowledgment)
+    RESERVED_ALERT (0x07, client alert/sound)
+    RESERVED_BKSP  (0x08, typing/animation effects)
+    RESERVED_HIDE  (0x18, initially hidden / show-hide toggle)
+    ESCAPE         (0x1B, extended command sequences)
 
   Preserved for plain-text extraction (3 commands):
-    HT (0x09), LF (0x0A), CR (0x0D)
+    TAB (0x09), LINE_BREAK (0x0A), CARRIAGE_RETURN (0x0D)
 
 
 5. STYLE STACK BEHAVIOR
@@ -498,29 +503,29 @@ The remaining printable UTF-8 bytes are the readable text.
   The text section maintains a STYLE STACK. Commands that push/pop:
 
     PUSH (new style context):
-      DC1 [index] -- pushes text style
-      DC2 [index] -- pushes container style (also opens block)
-      DC3 [index] -- pushes table style (also opens block)
+      STYLE_TEXT [index]      -- pushes text style
+      STYLE_CONTAINER [index] -- pushes container style (also opens block)
+      STYLE_TABLE [index]     -- pushes table style (also opens block)
 
     POP (revert to previous):
-      DC4         -- pops one level (reverts style, does NOT close block)
-      ETB         -- closes block AND pops associated style
+      STYLE_END               -- pops one level (reverts style, does NOT close block)
+      BLOCK_END               -- closes block AND pops associated style
 
     REPLACE (change without push):
-      DC1 [index] when already in a DC1 context -- replaces top of stack
-      (implementation choice: may push or replace; recommend push for
-      consistent nesting behavior)
+      STYLE_TEXT [index] when already in a STYLE_TEXT context -- replaces
+      top of stack (implementation choice: may push or replace; recommend
+      push for consistent nesting behavior)
 
   Example nesting:
-    [DC2 0x01]              -- push container style #1 (stack: [C1])
-      [DC1 0x00]            -- push text style #0 (stack: [C1, T0])
+    [STYLE_CONTAINER 0x01]  -- push container style #1 (stack: [C1])
+      [STYLE_TEXT 0x00]     -- push text style #0 (stack: [C1, T0])
         Normal text
-        [DC1 0x03]          -- push text style #3 (stack: [C1, T0, T3])
+        [STYLE_TEXT 0x03]   -- push text style #3 (stack: [C1, T0, T3])
           Bold text
-        [DC4]               -- pop (stack: [C1, T0])
+        [STYLE_END]         -- pop (stack: [C1, T0])
         Normal again
-      [DC4]                 -- pop (stack: [C1])
-    [ETB]                   -- close container, pop (stack: [])
+      [STYLE_END]           -- pop (stack: [C1])
+    [BLOCK_END]             -- close container, pop (stack: [])
 
 
 6. CROSS-MODEL ALIGNMENT NOTES
@@ -528,23 +533,23 @@ The remaining printable UTF-8 bytes are the readable text.
 
   This table resolves the following disagreements between models:
 
-  a) DC3 (0x13): Assigned to TABLE STYLE (cla/gpt proposal), not layer
-     targeting (Gemini proposal). Layer IDs are a property of the container
-     style record, not an inline command.
+  a) STYLE_TABLE (0x13): Assigned to TABLE STYLE (cla/gpt proposal), not
+     layer targeting (Gemini proposal). Layer IDs are a property of the
+     container style record, not an inline command.
 
-  b) AI Prompt (0x1A SUB): Uses [Type:1][Len:2 LE][Text:N] format (cla/gpt
+  b) AI_PROMPT (0x1A): Uses [Type:1][Len:2 LE][Text:N] format (cla/gpt
      proposal), not [Len:1][Text:N] (Gemini proposal). 2-byte length
      supports prompts up to 65535 bytes.
 
-  c) Phase III reservations: ENQ, ACK, BEL, BS, CAN, ESC are reserved for
-     future interactive features. Gemini's proposed uses are documented as
-     "possible future use" but are NOT functional in Phase II.
+  c) Phase III reservations: RESERVED_05, RESERVED_06, RESERVED_ALERT,
+     RESERVED_BKSP, RESERVED_HIDE, ESCAPE are reserved for future
+     interactive features. NOT functional in Phase II.
 
-  d) Nav bar: Uses EM (0x19) with type byte, not a dedicated control code.
-     This unified "item block" approach covers lists, nav bars, and other
-     repeating-item structures with a single control code.
+  d) Nav bar: Uses ITEM_BLOCK (0x19) with type byte, not a dedicated
+     control code. This unified "item block" approach covers lists, nav
+     bars, and other repeating-item structures with a single control code.
 
-  e) Data Escape (0x10 DLE): Includes 2-byte LE length prefix so the parser
+  e) DATA_ESCAPE (0x10): Includes 2-byte LE length prefix so the parser
      knows exactly how many bytes to skip. Without a length, the parser
      cannot resume command interpretation.
 

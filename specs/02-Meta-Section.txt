@@ -33,7 +33,7 @@ version, and preview content before deciding whether to download the rest.
 
   The Meta section ends when either:
     a) All pairs indicated by Pair Count have been read, OR
-    b) An FS (0x1C) marker is encountered (start of Styles section), OR
+    b) A SECTION_SEP (0x1C) marker is encountered (start of Styles section), OR
     c) EOF is reached (for meta-only documents with the EOF flag).
 
 
@@ -88,7 +88,7 @@ version, and preview content before deciding whether to download the rest.
     and delivery confirmation.
   - Key 2 (Subject): UTF-8 encoded. If the subject exceeds 255 bytes, it is
     truncated. The styled version of the subject (if any) appears in the
-    Text section marked with SOH (0x01).
+    Text section marked with SUBJECT_START (0x01).
   - Key 12 (Attachment Count): The number of files attached to this email.
     In Phase I, this is always 0. Attachment handling is defined separately.
   - Key 25 (Timestamp): Seconds since Unix epoch (1970-01-01 00:00:00 UTC).
@@ -214,8 +214,8 @@ All mailbox addresses (To, CC, From) are exactly 7 bytes:
 Phase I documents (version 0):
   - Have no Version key (key 30 absent).
   - Have no Phase II keys.
-  - The pair count and Phase I keys are followed by two FS markers (empty
-    Styles section) then STX + plain text body.
+  - The pair count and Phase I keys are followed by two SECTION_SEP markers
+    (empty Styles section) then TEXT_START + plain text body.
   - Phase II parsers detect version 0 by the absence of key 30.
 
 Phase II documents (version 1):

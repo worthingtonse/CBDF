@@ -40,7 +40,7 @@ Each resource record is separated by RS (0x1E) and has this structure:
   Resource IDs:
     - Must be unique within the document.
     - Range 0-255 (1 byte).
-    - Referenced by SYN (0x16) commands in the Text section and by Image
+    - Referenced by IMAGE (0x16) commands in the Text section and by Image
       Definition records in the Styles section.
     - ID assignment is at the document author's discretion (no required
       ordering).
@@ -68,15 +68,15 @@ Resources are referenced in two places:
      The Image Definition record includes a Resource ID field (byte 1) that
      points to the resource containing the image data.
 
-  B. Text section (SYN command 0x16):
-     [SYN image_def_index] inserts the image at the current text position.
+  B. Text section (IMAGE command 0x16):
+     [IMAGE image_def_index] inserts the image at the current text position.
      The index references an Image Definition in the Styles section, which
      in turn contains the Resource ID for the binary data.
 
   The indirection chain is:
-    SYN [image_def_index] -> Image Definition -> Resource ID -> binary data
+    IMAGE [image_def_index] -> Image Definition -> Resource ID -> binary data
 
-  SYN always references an Image Definition, never a Resource ID directly.
+  IMAGE always references an Image Definition, never a Resource ID directly.
   This ensures the renderer always has access to the display properties
   (width, height, fit mode, alignment, border) stored in the Image
   Definition, even when the resource binary data is unavailable.
