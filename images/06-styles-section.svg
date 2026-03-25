@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 500" font-family="Consolas, monospace">
+  <title>CBDF Styles Section Structure</title>
+
+  <!-- Background -->
+  <rect width="850" height="500" fill="#1a1a2e" rx="8"/>
+
+  <!-- Title -->
+  <text x="425" y="30" fill="#e0e0e0" font-size="18" text-anchor="middle" font-weight="bold">Styles Section Internal Structure</text>
+
+  <!-- Length prefix -->
+  <rect x="30" y="50" width="110" height="35" fill="#5c1f1f" stroke="#e74c3c" stroke-width="1.5" rx="3"/>
+  <text x="85" y="72" fill="#ffffff" font-size="10" text-anchor="middle">Length (4B LE)</text>
+
+  <!-- Layout byte -->
+  <rect x="150" y="50" width="90" height="35" fill="#6a4a2d" stroke="#f59e0b" stroke-width="1.5" rx="3"/>
+  <text x="195" y="72" fill="#ffffff" font-size="10" text-anchor="middle">Layout (1B)</text>
+
+  <!-- Page BG -->
+  <rect x="250" y="50" width="110" height="35" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="3"/>
+  <text x="305" y="72" fill="#ffffff" font-size="10" text-anchor="middle">Page BG Style</text>
+
+  <!-- Arrow down -->
+  <line x1="425" y1="90" x2="425" y2="105" stroke="#888" stroke-width="1.5"/>
+  <polygon points="420,103 430,103 425,110" fill="#888"/>
+
+  <!-- Sub-tables grid -->
+  <text x="425" y="130" fill="#e0e0e0" font-size="13" text-anchor="middle" font-weight="bold">Sub-tables (separated by GROUP_SEP 0x1D)</text>
+
+  <!-- Sub-table boxes -->
+  <g transform="translate(30, 145)">
+    <!-- Row 1 -->
+    <rect x="0" y="0" width="145" height="55" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="4"/>
+    <text x="72" y="20" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">BG Styles</text>
+    <text x="72" y="35" fill="#90ee90" font-size="8" text-anchor="middle">6/12/20B per record</text>
+    <text x="72" y="47" fill="#888" font-size="8" text-anchor="middle">Tiered (base/ext/rare)</text>
+
+    <!-- GS marker -->
+    <rect x="150" y="18" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="160" y="32" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="175" y="0" width="145" height="55" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="4"/>
+    <text x="247" y="20" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Border Styles</text>
+    <text x="247" y="35" fill="#90ee90" font-size="8" text-anchor="middle">9B per record</text>
+    <text x="247" y="47" fill="#888" font-size="8" text-anchor="middle">Fixed size</text>
+
+    <rect x="325" y="18" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="335" y="32" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="350" y="0" width="145" height="55" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="4"/>
+    <text x="422" y="20" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Spacing Styles</text>
+    <text x="422" y="35" fill="#90ee90" font-size="8" text-anchor="middle">4B per record</text>
+    <text x="422" y="47" fill="#888" font-size="8" text-anchor="middle">Fixed size</text>
+
+    <rect x="500" y="18" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="510" y="32" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="525" y="0" width="145" height="55" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="4"/>
+    <text x="597" y="20" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Shadow Styles</text>
+    <text x="597" y="35" fill="#90ee90" font-size="8" text-anchor="middle">4B per record</text>
+    <text x="597" y="47" fill="#888" font-size="8" text-anchor="middle">Fixed size</text>
+
+    <rect x="675" y="18" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="685" y="32" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <!-- Row 2 -->
+    <rect x="0" y="65" width="145" height="55" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="4"/>
+    <text x="72" y="85" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Composite</text>
+    <text x="72" y="100" fill="#90ee90" font-size="8" text-anchor="middle">5B (cross-refs)</text>
+    <text x="72" y="112" fill="#888" font-size="8" text-anchor="middle">BG+Border+Spc+Shd</text>
+
+    <rect x="150" y="83" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="160" y="97" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="175" y="65" width="145" height="55" fill="#4a2d6a" stroke="#a855f7" stroke-width="1.5" rx="4"/>
+    <text x="247" y="85" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Text Styles</text>
+    <text x="247" y="100" fill="#d8b4fe" font-size="8" text-anchor="middle">8/12/16B per record</text>
+    <text x="247" y="112" fill="#888" font-size="8" text-anchor="middle">Tiered (base/ext/rare)</text>
+
+    <rect x="325" y="83" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="335" y="97" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="350" y="65" width="145" height="55" fill="#2d6a6a" stroke="#22d3ee" stroke-width="1.5" rx="4"/>
+    <text x="422" y="85" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Font Effects</text>
+    <text x="422" y="100" fill="#a5f3fc" font-size="8" text-anchor="middle">4B per record</text>
+    <text x="422" y="112" fill="#888" font-size="8" text-anchor="middle">Custom params</text>
+
+    <rect x="500" y="83" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="510" y="97" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="525" y="65" width="145" height="55" fill="#6a4a2d" stroke="#f59e0b" stroke-width="1.5" rx="4"/>
+    <text x="597" y="85" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Nav Bar</text>
+    <text x="597" y="100" fill="#fde68a" font-size="8" text-anchor="middle">12B per record</text>
+    <text x="597" y="112" fill="#888" font-size="8" text-anchor="middle">Fixed size</text>
+
+    <rect x="675" y="83" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="685" y="97" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <!-- Row 3 -->
+    <rect x="0" y="130" width="145" height="55" fill="#6a4a2d" stroke="#f59e0b" stroke-width="1.5" rx="4"/>
+    <text x="72" y="150" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Table Styles</text>
+    <text x="72" y="165" fill="#fde68a" font-size="8" text-anchor="middle">6B per record</text>
+
+    <rect x="150" y="148" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="160" y="162" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="175" y="130" width="145" height="55" fill="#6a4a2d" stroke="#f59e0b" stroke-width="1.5" rx="4"/>
+    <text x="247" y="150" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Image Defs</text>
+    <text x="247" y="165" fill="#fde68a" font-size="8" text-anchor="middle">8B per record</text>
+
+    <rect x="325" y="148" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="335" y="162" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="350" y="130" width="145" height="55" fill="#6a4a2d" stroke="#f59e0b" stroke-width="1.5" rx="4"/>
+    <text x="422" y="150" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">Frame Defs</text>
+    <text x="422" y="165" fill="#fde68a" font-size="8" text-anchor="middle">8B per record</text>
+
+    <rect x="500" y="148" width="20" height="20" fill="#e74c3c" rx="2"/>
+    <text x="510" y="162" fill="#fff" font-size="8" text-anchor="middle">GS</text>
+
+    <rect x="525" y="130" width="145" height="55" fill="#333" stroke="#555" stroke-width="1" stroke-dasharray="4,2" rx="4"/>
+    <text x="597" y="155" fill="#666" font-size="10" text-anchor="middle">Forms (Phase III)</text>
+  </g>
+
+  <!-- Header byte detail -->
+  <text x="425" y="400" fill="#e0e0e0" font-size="13" text-anchor="middle" font-weight="bold">Sub-table Header Byte</text>
+
+  <g transform="translate(200, 415)">
+    <rect x="0" y="0" width="150" height="35" fill="#4a2d6a" stroke="#a855f7" stroke-width="1.5" rx="3"/>
+    <text x="75" y="22" fill="#ffffff" font-size="11" text-anchor="middle">Tier (bits 0-1)</text>
+
+    <rect x="155" y="0" width="250" height="35" fill="#2d4a7a" stroke="#5b9bd5" stroke-width="1.5" rx="3"/>
+    <text x="280" y="22" fill="#ffffff" font-size="11" text-anchor="middle">Count (bits 2-7) max 63</text>
+  </g>
+
+  <g transform="translate(200, 460)">
+    <text x="0" y="12" fill="#a855f7" font-size="10">00 = Base only</text>
+    <text x="0" y="27" fill="#a855f7" font-size="10">01 = Base + Extended</text>
+    <text x="170" y="12" fill="#a855f7" font-size="10">10 = Base + Ext + Rare</text>
+    <text x="170" y="27" fill="#a855f7" font-size="10">11 = Reserved</text>
+    <text x="370" y="12" fill="#5b9bd5" font-size="10">Followed by RECORD_SEP between records</text>
+  </g>
+</svg>
