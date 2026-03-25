@@ -30,7 +30,7 @@ A plain-text reader extracts readable text by:
      - Bytes >= 0x20 (all printable ASCII and UTF-8)
      - 0x09 TAB = Horizontal tab
      - 0x0A LINE_BREAK = Line feed
-     - 0x0D CARRIAGE_RETURN = Carriage return
+     - 0x0D HORIZ_RULE optionally replaced with "---"
   4. Stripping all other bytes 0x00-0x1F and their payloads.
 
 To strip payloads correctly, the plain-text extractor must understand
@@ -38,6 +38,7 @@ which control codes have payloads and how long they are:
 
   Code | Payload to skip
   -----|------------------------------------------
+  0x0D | 1 byte (style index)
   0x0E | 1 + 1 + N bytes (type + length + target)
   0x10 | 2 + N bytes (length LE + raw data)
   0x11 | 1 byte (style index)
@@ -222,7 +223,10 @@ which control codes have payloads and how long they are:
     [PAGE_BREAK]  -- starts a new rendering page
 
   Line break:
-    [LINE_BREAK] or [CARRIAGE_RETURN][LINE_BREAK]  -- standard line break
+    [LINE_BREAK]  -- standard line break
+
+  Horizontal divider:
+    [HORIZ_RULE style_index]  -- draws a styled horizontal line
 
 
 5. WORKED EXAMPLES

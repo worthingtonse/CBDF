@@ -21,10 +21,10 @@ of the CBDF format. They appear in two contexts:
 
 PLAIN-TEXT EXTRACTION RULE: A plain-text reader strips ALL bytes 0x00-0x1F
 from the text section EXCEPT:
-  - 0x09 (HT) = Horizontal Tab
-  - 0x0A (LF) = Line Feed
-  - 0x0D (CR) = Carriage Return
+  - 0x09 (TAB) = Horizontal Tab
+  - 0x0A (LINE_BREAK) = Line Feed
 The remaining printable UTF-8 bytes are the readable text.
+Note: 0x0D (HORIZ_RULE) may optionally be replaced with "---" in plain text.
 
 
 2. MASTER ASSIGNMENT TABLE
@@ -45,7 +45,7 @@ The remaining printable UTF-8 bytes are the readable text.
 | 0x0A | 10  | LF     | LINE_BREAK        | Line Feed             | None                             | II    |
 | 0x0B | 11  | VT     | PARA_BREAK        | Paragraph Break       | None                             | II    |
 | 0x0C | 12  | FF     | PAGE_BREAK        | Page Break            | None                             | II    |
-| 0x0D | 13  | CR     | CARRIAGE_RETURN   | Carriage Return       | None                             | II    |
+| 0x0D | 13  | CR     | HORIZ_RULE        | Horizontal Rule       | [StyleIndex:1]                   | II    |
 | 0x0E | 14  | SO     | LINK_START        | Link Start            | [Type:1][Len:1][Target:N]        | II    |
 | 0x0F | 15  | SI     | LINK_END          | Link End              | None                             | II    |
 | 0x10 | 16  | DLE    | DATA_ESCAPE       | Data Escape           | [Len:2 LE][Raw data:N]           | II    |
@@ -181,12 +181,29 @@ The remaining printable UTF-8 bytes are the readable text.
   Context: Text section.
 
 
---- 0x0D CARRIAGE_RETURN (CR): Carriage Return ---
+--- 0x0D HORIZ_RULE (CR): Horizontal Rule ---
 
-  Purpose: Standard Windows line break component. PRESERVED in plain-text
-  extraction. Typically paired with LF (CR+LF).
-  Payload: None.
+  Purpose: Inserts a horizontal divider line (equivalent to HTML <hr>).
+  Common in emails (signature separators, section dividers) and web pages.
+
+  Payload: [Style Index: 1 byte]
+  The index references a Container Border Style in the Styles section.
+  The renderer draws a horizontal line using the border color and thickness
+  from the referenced style. Index 0 = default rule (1px mid-gray line).
+
   Context: Text section.
+  Usage:
+    Some content above the divider
+    [HORIZ_RULE 0x00]
+    Some content below the divider
+
+  Plain-text extraction: HORIZ_RULE is stripped. Optionally replaced with
+  a line of dashes ("---") or similar by convention.
+
+  NOTE: 0x0D was previously CARRIAGE_RETURN. Since CBDF is rendered by
+  custom software (not a terminal), only LINE_BREAK (0x0A) is needed for
+  line breaks. Windows-style CR+LF is unnecessary. Freeing 0x0D for
+  HORIZ_RULE provides a high-value command for a commonly used element.
 
 
 --- 0x0E LINK_START (SO): Link Start ---
@@ -412,8 +429,24 @@ The remaining printable UTF-8 bytes are the readable text.
   commands.
 
   Payload: [Command Code: 1 byte] [Payload: variable per command]
-  No ESC commands are defined in Phase II. The parser should skip ESC +
-  the next byte (and any associated payload, if a length is provided).
+
+  Phase II parsers should skip ESCAPE + command code byte. If the command
+  code is unknown, the parser cannot determine payload length and must
+  treat the rest of the block as unparseable. For this reason, ESCAPE
+  commands should only be used in Phase III when the Logic section exists.
+
+  Pre-defined ESCAPE sub-commands (for Phase III implementation):
+
+    Code | Name              | Payload              | Description
+    -----|-------------------|----------------------|---------------------------
+    0x01 | ESC_FRAME         | [FrameDefIndex:1]    | Insert iframe/embed
+    0x02 | ESC_LAYER_TARGET  | [LayerID:1]          | Direct content to layer
+    0x03 | ESC_COMMENT       | [Len:2 LE][UTF-8:N]  | Parser-ignored comment
+    0x04 | ESC_SUPER_ON      | None                 | Superscript toggle on
+    0x05 | ESC_SUPER_OFF     | None                 | Superscript toggle off
+    0x06 | ESC_SUB_ON        | None                 | Subscript toggle on
+    0x07 | ESC_SUB_OFF       | None                 | Subscript toggle off
+    0x08-0xFF | Reserved     | -                    | Future extended commands
 
   Context: Both structural and text.
 
@@ -478,7 +511,7 @@ The remaining printable UTF-8 bytes are the readable text.
 
   Phase II (26 active commands):
     NOP, SUBJECT_START, TEXT_START, TEXT_END, DOC_END,
-    TAB, LINE_BREAK, PARA_BREAK, PAGE_BREAK, CARRIAGE_RETURN,
+    TAB, LINE_BREAK, PARA_BREAK, PAGE_BREAK, HORIZ_RULE,
     LINK_START, LINK_END, DATA_ESCAPE,
     STYLE_TEXT, STYLE_CONTAINER, STYLE_TABLE, STYLE_END,
     ELEMENT_ID, IMAGE, BLOCK_END,
@@ -493,8 +526,8 @@ The remaining printable UTF-8 bytes are the readable text.
     RESERVED_HIDE  (0x18, initially hidden / show-hide toggle)
     ESCAPE         (0x1B, extended command sequences)
 
-  Preserved for plain-text extraction (3 commands):
-    TAB (0x09), LINE_BREAK (0x0A), CARRIAGE_RETURN (0x0D)
+  Preserved for plain-text extraction (2 commands):
+    TAB (0x09), LINE_BREAK (0x0A)
 
 
 5. STYLE STACK BEHAVIOR
@@ -587,7 +620,7 @@ need to remember hex codes or ASCII symbols.
       LINE_BREAK        = 0x0A,  /* Line feed (Unix line break)           */
       PARA_BREAK        = 0x0B,  /* Paragraph break (extra spacing)       */
       PAGE_BREAK        = 0x0C,  /* Page break / new page                 */
-      CARRIAGE_RETURN   = 0x0D,  /* Carriage return (Windows line break)  */
+      HORIZ_RULE        = 0x0D,  /* Horizontal rule/divider: [StyleIndex] */
 
       /* -- Links -- */
       LINK_START        = 0x0E,  /* Hyperlink start: [Type][Len][Target]  */
