@@ -35,14 +35,14 @@ result_t qmail_cbdf_encode(const qmail_cbdf_params_t *params,
     *size_out = 0;
 
     size_t subject_len = params->subject ? strlen(params->subject) : 0;
-    if (subject_len > 255) subject_len = 255;  /* value_len is 1 byte */
+    if (subject_len > 255) subject_len = 255;  /* value_len is 1 byte */ // what is value_len
     size_t body_len = strlen(params->body);
 
     int to_count = params->to_count;
     int cc_count = params->cc_count;
 
     /* Count pairs: GUID + Subject + NumAttachments + From + Timestamp + N*To + N*CC */
-    uint16_t pair_count = 5 + (uint16_t)to_count + (uint16_t)cc_count;
+    uint16_t pair_count = 5 + (uint16_t)to_count + (uint16_t)cc_count;  // what if there is no subject?
 
     /* Calculate total CBDF size */
     size_t meta_size = 2;                     /* pair count */
