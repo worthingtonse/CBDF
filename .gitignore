@@ -1,3 +1,7 @@
 .claude/
 .vs
 .gitignore
+/CBDF_Project.sln
+*.vcxproj
+*.filters
+/CBDF_Project.vcxproj.user

@@ -1,4 +1,8 @@
-#include "document.hpp"
+#include "cbdf_document.hpp"
 
-struct DocumentSerializer;
-struct DocumentDeserializer;
+/*
+Archival object will go here
+
+It will use reflection to turn Document objects (metadata, styles, etc.)
+into binary.
+*/

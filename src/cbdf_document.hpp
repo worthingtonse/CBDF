@@ -2,40 +2,75 @@
 Authors: Victoria Worthington & Ryan Makela 
 Version: 0.0.1
 */
-
 #include <map>
 #include <cstdint>
+#include <unordered_map>
+#include <span>
+#include <string>
+#include <concepts>
+#include <inplace_vector>
 
-struct Document;
+#include "cbdf_controlcharacters.hpp"
 
-struct Document {
-	// investigate more into this pragma pack, pop, and static assert
-	#pragma pack(push, 1) // Ensure 0 padding
-	struct Metadata {
-		std::uint16_t pair_count;
-	};
-	#pragma pack(pop)
+template<uint8_t MetadataKey, 
+	typename MetadataType,
+	bool MetadataRequired>
+struct MetadataField {
+	static constexpr uint8_t key = MetadataKey;
+	using type = MetadataType;
+	static constexpr bool required = MetadataRequired;
+};
 
-	struct Styles {
-		std::uint16_t pair_count;
-	};
+struct QMailId {
+	std::array<std::byte, 16> GUID;
+};
 
-	struct Text {
-		std::uint16_t pair_count;
-	};
+struct MailboxAddress {
+	std::uint16_t coin_group;
+	std::uint8_t demonination;
+	std::uint32_t serial_number;
+};
 
-	struct Resources {
-		std::uint16_t pair_count;
-	};
+using QMailSchema = std::tuple<
+	MetadataField<1, QMailId, true>,		// QMail ID
+	MetadataField<2, std::string, false>,	// Subject
+	MetadataField<12, uint8_t, true>,		// Attachment Count
+	MetadataField<13, MailboxAddress, true>,  // To Mailbox
+	MetadataField<14, MailboxAddress, false>, // CC Mailbox
+	MetadataField<19, MailboxAddress, true>,  // From Mailbox
+	MetadataField<25, uint32_t, true>		// Timestamp
+>;
 
-	struct Logic {
-		std::uint16_t pair_count;
-	};
+template <std::unsigned_integral keySize,
+	std::unsigned_integral valueSize>
+struct TLV {
+	keySize key_id;
+	valueSize value_length;
+	std::inplace_vector<std::byte, 255> value; // max size of 255 bytes. 
+};
 
+class Metadata {
+	std::uint16_t pair_count;
+	std::inplace_vector<TLV<uint8_t, uint8_t>, pair_count> tlvs;
+	
+public:
+	Metadata(std::uint8_t pair_count) : pair_count(pair_count) {
+		
+	}
+};
 
-	Metadata meta; 
-	Styles styles;
-	Text text;
-	Resources resources;
-	Logic logic;
+struct Styles {
+	std::uint16_t pair_count;
+};
+
+struct Text {
+	std::uint16_t pair_count;
+};
+
+struct Resources {
+	std::uint16_t pair_count;
+};
+
+struct Logic {
+	std::uint16_t pair_count;
 };
