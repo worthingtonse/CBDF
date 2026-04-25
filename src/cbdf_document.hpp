@@ -49,6 +49,30 @@ struct TLV {
 	std::inplace_vector<std::byte, 255> value; // max size of 255 bytes. 
 };
 
+template <typename Schema, typename Func>
+void dispatch_tlv(const TLV<uint8_t, uint8_t>& tlv, Func&& callback) {
+	bool found = false;
+
+	// C++26 template for iterates over the tuple types at compile time
+	template for (using Field : Schema) {
+		if (tlv.key_id == Field::key) {
+			// We found the matching schema entry!
+			using TargetType = typename Field::type;
+
+			// Map the raw bytes to our actual struct
+			TargetType value;
+			std::memcpy(&value, tlv.value.data(), sizeof(TargetType));
+
+			callback(value);
+			found = true;
+		}
+	}
+
+	if (!found) {
+		// Handle unknown Key ID
+	}
+}
+
 class Metadata {
 	std::uint16_t pair_count;
 	std::inplace_vector<TLV<uint8_t, uint8_t>, pair_count> tlvs;
